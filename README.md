@@ -33,7 +33,11 @@ The project builds as a normal Windows subsystem executable and does not require
 
 ## Files
 
-- `StockSystem.cpp`: Win32 UI, trading core, backtest engine, threading, chart drawing, and message handling.
+- `StockSystem.cpp`: Win32 program entry and message loop.
+- `MainWindow.h/.cpp`: native controls, GDI chart drawing, mouse/keyboard messages, and UI refresh.
+- `BacktestEngine.h/.cpp`: worker threads, market replay, strategy scheduling, order matching, optimization, and UI snapshots.
+- `TradingCore.h/.cpp`: account, order, trade, risk manager, order book, and moving-average strategy.
+- `Indicators.h/.cpp`: parallel moving-average calculation with `std::execution::par`.
 - `StockSystem.vcxproj`: Visual Studio project configured for Windows native build.
 - `StockSystem.rc`, `Resource.h`, `StockSystem.ico`, `small.ico`: Windows resources.
 - `framework.h`, `targetver.h`, `StockSystem.h`: standard Win32 project headers.
