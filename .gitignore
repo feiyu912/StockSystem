@@ -1,0 +1,16 @@
+.vs/
+x64/
+Debug/
+Release/
+build*/
+out/
+*.user
+*.aps
+*.ipch
+*.pdb
+*.ilk
+*.obj
+*.tlog
+*.log
+*.VC.db
+*.VC.VC.opendb
