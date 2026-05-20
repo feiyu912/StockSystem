@@ -40,6 +40,11 @@ void SimulationEngine::configure(double initialCash, int shortWindow, int longWi
     longWindow_ = std::max(shortWindow_ + 1, longWindow);
 }
 
+void SimulationEngine::setReplayDelay(int milliseconds)
+{
+    replayDelayMs_ = std::clamp(milliseconds, 10, 1000);
+}
+
 void SimulationEngine::start(HWND notifyWindow)
 {
     stop();
@@ -222,7 +227,7 @@ void SimulationEngine::marketLoop()
 
         marketQueue_.push(event);
         notify();
-        std::this_thread::sleep_for(std::chrono::milliseconds(90));
+        std::this_thread::sleep_for(std::chrono::milliseconds(replayDelayMs_.load()));
     }
 
     running_ = false;

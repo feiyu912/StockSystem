@@ -28,24 +28,34 @@ constexpr int IDC_LIST_LOGS = 2008;
 constexpr int IDC_EDIT_CASH = 2009;
 constexpr int IDC_EDIT_SHORT = 2010;
 constexpr int IDC_EDIT_LONG = 2011;
+constexpr int IDC_COMBO_PERIOD = 2012;
+constexpr int IDC_COMBO_SPEED = 2013;
+constexpr int IDC_COMBO_INDICATOR = 2014;
 
-constexpr COLORREF CLR_BG = RGB(10, 15, 25);
-constexpr COLORREF CLR_PANEL = RGB(15, 23, 42);
-constexpr COLORREF CLR_PANEL_2 = RGB(20, 31, 51);
-constexpr COLORREF CLR_BORDER = RGB(51, 65, 85);
-constexpr COLORREF CLR_TEXT = RGB(226, 232, 240);
-constexpr COLORREF CLR_MUTED = RGB(148, 163, 184);
-constexpr COLORREF CLR_GRID = RGB(30, 41, 59);
-constexpr COLORREF CLR_RED = RGB(248, 113, 113);
-constexpr COLORREF CLR_GREEN = RGB(52, 211, 153);
-constexpr COLORREF CLR_BLUE = RGB(96, 165, 250);
-constexpr COLORREF CLR_YELLOW = RGB(250, 204, 21);
+constexpr COLORREF CLR_BG = RGB(239, 239, 239);
+constexpr COLORREF CLR_PANEL = RGB(255, 255, 255);
+constexpr COLORREF CLR_PANEL_2 = RGB(248, 248, 248);
+constexpr COLORREF CLR_BORDER = RGB(160, 160, 160);
+constexpr COLORREF CLR_TEXT = RGB(20, 20, 20);
+constexpr COLORREF CLR_MUTED = RGB(96, 96, 96);
+constexpr COLORREF CLR_GRID = RGB(210, 210, 210);
+constexpr COLORREF CLR_RED = RGB(255, 30, 30);
+constexpr COLORREF CLR_GREEN = RGB(0, 140, 0);
+constexpr COLORREF CLR_BLUE = RGB(0, 92, 255);
+constexpr COLORREF CLR_YELLOW = RGB(236, 150, 0);
+constexpr COLORREF CLR_MAGENTA = RGB(255, 0, 255);
+constexpr COLORREF CLR_ORANGE = RGB(238, 88, 0);
+constexpr COLORREF CLR_GRAY_BAR = RGB(155, 155, 155);
 
 HINSTANCE g_instance = nullptr;
 const wchar_t* kWindowClass = L"StockSystemWin32Class";
 
 struct Rects {
+    RECT quote{};
+    RECT tabs{};
     RECT chart{};
+    RECT volume{};
+    RECT indicator{};
     RECT side{};
     RECT bottom{};
 };
@@ -56,6 +66,9 @@ struct AppState {
     HWND hReset = nullptr;
     HWND hOptimize = nullptr;
     HWND hStrategy = nullptr;
+    HWND hPeriod = nullptr;
+    HWND hSpeed = nullptr;
+    HWND hIndicator = nullptr;
     HWND hOrders = nullptr;
     HWND hTrades = nullptr;
     HWND hLogs = nullptr;
@@ -65,7 +78,10 @@ struct AppState {
     HWND hStatus = nullptr;
     Rects rects;
     int visibleBars = 110;
-    std::wstring chartHint = L"Synthetic in-memory market data. Click a bar for OHLC; mouse wheel zooms.";
+    int periodFactor = 1;
+    int selectedBar = -1;
+    int indicatorMode = 1;
+    std::wstring chartHint = L"Synthetic market. Select period, speed, MA windows, and indicator.";
     HBRUSH bgBrush = CreateSolidBrush(CLR_BG);
     HBRUSH panelBrush = CreateSolidBrush(CLR_PANEL);
     HBRUSH editBrush = CreateSolidBrush(CLR_PANEL_2);
@@ -127,6 +143,30 @@ int readInt(HWND edit, int fallback)
     return end == buffer ? fallback : static_cast<int>(value);
 }
 
+int comboSelection(HWND combo, int fallback)
+{
+    const LRESULT sel = SendMessageW(combo, CB_GETCURSEL, 0, 0);
+    return sel == CB_ERR ? fallback : static_cast<int>(sel);
+}
+
+int selectedPeriodFactor()
+{
+    static constexpr int factors[] = { 1, 5, 15, 30, 60, 240, 1200 };
+    return factors[std::clamp(comboSelection(g_app->hPeriod, 0), 0, 6)];
+}
+
+int selectedReplayDelay()
+{
+    static constexpr int delays[] = { 220, 90, 30, 10 };
+    return delays[std::clamp(comboSelection(g_app->hSpeed, 1), 0, 3)];
+}
+
+std::wstring periodName()
+{
+    static constexpr const wchar_t* names[] = { L"1m", L"5m", L"15m", L"30m", L"60m", L"Day", L"Week" };
+    return names[std::clamp(comboSelection(g_app->hPeriod, 0), 0, 6)];
+}
+
 void addListLine(HWND listBox, const std::wstring& text)
 {
     SendMessageW(listBox, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str()));
@@ -138,6 +178,8 @@ void refreshLists(HWND window)
         return;
     }
     g_app->snapshot = g_app->engine.snapshot();
+    g_app->periodFactor = selectedPeriodFactor();
+    g_app->indicatorMode = comboSelection(g_app->hIndicator, 1);
 
     if (g_app->renderedOrderCount != g_app->snapshot.orders.size()) {
         SendMessageW(g_app->hOrders, WM_SETREDRAW, FALSE, 0);
@@ -184,13 +226,14 @@ void refreshLists(HWND window)
     }
 
     std::wstringstream status;
-    status << L"Price " << money(g_app->snapshot.lastPrice)
+    status << L"TEST.SH " << periodName()
+           << L" | Price " << money(g_app->snapshot.lastPrice)
            << L" | Cash " << money(g_app->snapshot.account.cash)
            << L" | Position " << g_app->snapshot.account.position
            << L" | Equity " << money(g_app->snapshot.account.equity)
            << L" | MaxDD " << percent(g_app->snapshot.account.maxDrawdown);
     SetWindowTextW(g_app->hStatus, status.str().c_str());
-    InvalidateRect(window, &g_app->rects.chart, FALSE);
+    InvalidateRect(window, nullptr, FALSE);
 }
 
 void startBacktest(HWND window)
@@ -199,6 +242,7 @@ void startBacktest(HWND window)
     const int shortW = std::max(1, readInt(g_app->hShort, 5));
     const int longW = std::max(shortW + 1, readInt(g_app->hLong, 30));
     g_app->engine.configure(cash, shortW, longW);
+    g_app->engine.setReplayDelay(selectedReplayDelay());
     g_app->engine.start(window);
     refreshLists(window);
 }
@@ -220,26 +264,38 @@ void layout(HWND window)
     GetClientRect(window, &rc);
     const int width = rc.right - rc.left;
     const int height = rc.bottom - rc.top;
-    const int top = 14;
-    const int sideWidth = 260;
-    const int bottomHeight = 190;
+    const int top = 8;
+    const int quoteHeight = 62;
+    const int tabHeight = 36;
+    const int sideWidth = 300;
+    const int bottomHeight = 150;
     const int gap = 10;
+    const int chartBottom = height - bottomHeight - gap;
+    const int plotTop = top + quoteHeight + tabHeight + gap;
+    const int mainWidth = width - sideWidth - gap * 3;
 
-    g_app->rects.chart = { 14, top + 42, width - sideWidth - gap * 2, height - bottomHeight - gap };
-    g_app->rects.side = { width - sideWidth - gap, top, width - gap, height - bottomHeight - gap };
+    g_app->rects.quote = { gap, top, width - gap, top + quoteHeight };
+    g_app->rects.tabs = { gap, top + quoteHeight + 4, width - sideWidth - gap * 2, top + quoteHeight + tabHeight };
+    g_app->rects.chart = { 60, plotTop, mainWidth, plotTop + (chartBottom - plotTop) * 56 / 100 };
+    g_app->rects.volume = { 60, g_app->rects.chart.bottom + 12, mainWidth, g_app->rects.chart.bottom + 118 };
+    g_app->rects.indicator = { 60, g_app->rects.volume.bottom + 10, mainWidth, chartBottom };
+    g_app->rects.side = { width - sideWidth - gap, top + quoteHeight + 4, width - gap, chartBottom };
     g_app->rects.bottom = { 14, height - bottomHeight, width - 14, height - 32 };
 
-    MoveWindow(g_app->hStart, 14, top, 72, 28, TRUE);
-    MoveWindow(g_app->hPause, 92, top, 72, 28, TRUE);
-    MoveWindow(g_app->hReset, 170, top, 72, 28, TRUE);
-    MoveWindow(g_app->hOptimize, 248, top, 104, 28, TRUE);
+    MoveWindow(g_app->hStart, 16, top + 32, 70, 24, TRUE);
+    MoveWindow(g_app->hPause, 92, top + 32, 70, 24, TRUE);
+    MoveWindow(g_app->hReset, 168, top + 32, 70, 24, TRUE);
+    MoveWindow(g_app->hOptimize, 244, top + 32, 92, 24, TRUE);
+    MoveWindow(g_app->hPeriod, 190, g_app->rects.tabs.top + 6, 120, 200, TRUE);
+    MoveWindow(g_app->hSpeed, 318, g_app->rects.tabs.top + 6, 100, 200, TRUE);
+    MoveWindow(g_app->hIndicator, 426, g_app->rects.tabs.top + 6, 110, 200, TRUE);
 
     const int sx = g_app->rects.side.left;
-    const int sy = g_app->rects.side.top;
-    MoveWindow(g_app->hStrategy, sx, sy + 20, sideWidth - 20, 26, TRUE);
-    MoveWindow(g_app->hCash, sx, sy + 78, sideWidth - 20, 24, TRUE);
-    MoveWindow(g_app->hShort, sx, sy + 136, 110, 24, TRUE);
-    MoveWindow(g_app->hLong, sx + 128, sy + 136, 110, 24, TRUE);
+    const int sy = g_app->rects.side.bottom - 210;
+    MoveWindow(g_app->hStrategy, sx + 14, sy + 26, sideWidth - 30, 26, TRUE);
+    MoveWindow(g_app->hCash, sx + 14, sy + 84, sideWidth - 30, 24, TRUE);
+    MoveWindow(g_app->hShort, sx + 14, sy + 142, 110, 24, TRUE);
+    MoveWindow(g_app->hLong, sx + 142, sy + 142, 110, 24, TRUE);
 
     const int third = (g_app->rects.bottom.right - g_app->rects.bottom.left - 20) / 3;
     MoveWindow(g_app->hOrders, g_app->rects.bottom.left, g_app->rects.bottom.top + 24, third, bottomHeight - 60, TRUE);
@@ -258,6 +314,24 @@ void createControls(HWND window)
     g_app->hPause = CreateWindowW(L"BUTTON", L"Pause", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, window, menuId(IDC_BTN_PAUSE), g_instance, nullptr);
     g_app->hReset = CreateWindowW(L"BUTTON", L"Reset", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, window, menuId(IDC_BTN_RESET), g_instance, nullptr);
     g_app->hOptimize = CreateWindowW(L"BUTTON", L"Optimize", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, window, menuId(IDC_BTN_OPTIMIZE), g_instance, nullptr);
+    g_app->hPeriod = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 0, 0, 0, 0, window, menuId(IDC_COMBO_PERIOD), g_instance, nullptr);
+    for (const wchar_t* text : { L"1m", L"5m", L"15m", L"30m", L"60m", L"Day", L"Week" }) {
+        SendMessageW(g_app->hPeriod, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text));
+    }
+    SendMessageW(g_app->hPeriod, CB_SETCURSEL, 0, 0);
+
+    g_app->hSpeed = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 0, 0, 0, 0, window, menuId(IDC_COMBO_SPEED), g_instance, nullptr);
+    for (const wchar_t* text : { L"Slow", L"Normal", L"Fast", L"Turbo" }) {
+        SendMessageW(g_app->hSpeed, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text));
+    }
+    SendMessageW(g_app->hSpeed, CB_SETCURSEL, 1, 0);
+
+    g_app->hIndicator = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 0, 0, 0, 0, window, menuId(IDC_COMBO_INDICATOR), g_instance, nullptr);
+    for (const wchar_t* text : { L"Volume", L"RSI", L"KDJ", L"MACD" }) {
+        SendMessageW(g_app->hIndicator, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text));
+    }
+    SendMessageW(g_app->hIndicator, CB_SETCURSEL, 1, 0);
+
     g_app->hStrategy = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 0, 0, 0, 0, window, menuId(IDC_COMBO_STRATEGY), g_instance, nullptr);
     SendMessageW(g_app->hStrategy, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Moving Average Crossover"));
     SendMessageW(g_app->hStrategy, CB_SETCURSEL, 0, 0);
@@ -270,7 +344,8 @@ void createControls(HWND window)
     g_app->hLogs = CreateWindowW(L"LISTBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | WS_VSCROLL, 0, 0, 0, 0, window, menuId(IDC_LIST_LOGS), g_instance, nullptr);
     g_app->hStatus = CreateWindowW(L"STATIC", L"Ready", WS_CHILD | WS_VISIBLE | SS_SUNKEN, 0, 0, 0, 0, window, nullptr, g_instance, nullptr);
 
-    for (HWND child : { g_app->hStart, g_app->hPause, g_app->hReset, g_app->hOptimize, g_app->hStrategy,
+    for (HWND child : { g_app->hStart, g_app->hPause, g_app->hReset, g_app->hOptimize,
+        g_app->hPeriod, g_app->hSpeed, g_app->hIndicator, g_app->hStrategy,
         g_app->hCash, g_app->hShort, g_app->hLong, g_app->hOrders, g_app->hTrades, g_app->hLogs, g_app->hStatus }) {
         setChildFont(child);
     }
@@ -304,6 +379,58 @@ void drawSeries(HDC dc, const RECT& rect, const std::vector<double>& values, COL
     }
     SelectObject(dc, oldPen);
     DeleteObject(pen);
+}
+
+std::vector<MarketBar> aggregateBars(const std::vector<MarketBar>& source, int factor)
+{
+    if (factor <= 1 || source.empty()) {
+        return source;
+    }
+
+    std::vector<MarketBar> out;
+    for (size_t i = 0; i < source.size(); i += static_cast<size_t>(factor)) {
+        const size_t end = std::min(source.size(), i + static_cast<size_t>(factor));
+        MarketBar bar = source[i];
+        bar.open = source[i].open;
+        bar.high = source[i].high;
+        bar.low = source[i].low;
+        bar.close = source[end - 1].close;
+        bar.price = bar.close;
+        bar.volume = 0;
+        bar.timestamp = source[end - 1].timestamp;
+        for (size_t j = i; j < end; ++j) {
+            bar.high = std::max(bar.high, source[j].high);
+            bar.low = std::min(bar.low, source[j].low);
+            bar.volume += source[j].volume;
+        }
+        out.push_back(bar);
+    }
+    return out;
+}
+
+void drawFrameAndGrid(HDC dc, const RECT& rect, int horizontal = 4)
+{
+    HBRUSH white = CreateSolidBrush(CLR_PANEL);
+    FillRect(dc, &rect, white);
+    DeleteObject(white);
+    HBRUSH border = CreateSolidBrush(CLR_BORDER);
+    FrameRect(dc, &rect, border);
+    DeleteObject(border);
+
+    HPEN gridPen = CreatePen(PS_DOT, 1, CLR_GRID);
+    HGDIOBJ oldPen = SelectObject(dc, gridPen);
+    for (int i = 1; i < horizontal; ++i) {
+        const int y = rect.top + (rect.bottom - rect.top) * i / horizontal;
+        MoveToEx(dc, rect.left, y, nullptr);
+        LineTo(dc, rect.right, y);
+    }
+    for (int i = 1; i < 4; ++i) {
+        const int x = rect.left + (rect.right - rect.left) * i / 4;
+        MoveToEx(dc, x, rect.top, nullptr);
+        LineTo(dc, x, rect.bottom);
+    }
+    SelectObject(dc, oldPen);
+    DeleteObject(gridPen);
 }
 
 void drawLineWithScale(HDC dc, const RECT& rect, const std::vector<double>& values, double minValue, double maxValue, COLORREF color, int width = 1)
@@ -340,17 +467,30 @@ void drawLineWithScale(HDC dc, const RECT& rect, const std::vector<double>& valu
     DeleteObject(pen);
 }
 
+void drawValueLabel(HDC dc, int x, int y, const wchar_t* name, double value, COLORREF color)
+{
+    std::wstringstream ss;
+    ss << name << L": " << std::fixed << std::setprecision(2) << value;
+    SetTextColor(dc, color);
+    TextOutW(dc, x, y, ss.str().c_str(), static_cast<int>(ss.str().size()));
+}
+
 void drawKLine(HDC dc, const RECT& rect, const std::vector<MarketBar>& allBars, int visibleBars)
 {
+    drawFrameAndGrid(dc, rect, 5);
     if (allBars.empty()) {
         SetTextColor(dc, CLR_MUTED);
         DrawTextW(dc, L"No market data yet. Press Start or Space.", -1, const_cast<RECT*>(&rect), DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         return;
     }
 
-    const size_t count = std::min(static_cast<size_t>(std::max(20, visibleBars)), allBars.size());
-    const auto first = allBars.end() - static_cast<std::ptrdiff_t>(count);
-    std::vector<MarketBar> bars(first, allBars.end());
+    const auto aggregated = aggregateBars(allBars, g_app->periodFactor);
+    const size_t count = std::min(static_cast<size_t>(std::max(20, visibleBars)), aggregated.size());
+    if (count == 0) {
+        return;
+    }
+    const auto first = aggregated.end() - static_cast<std::ptrdiff_t>(count);
+    std::vector<MarketBar> bars(first, aggregated.end());
     std::vector<double> closes;
     closes.reserve(bars.size());
 
@@ -362,23 +502,15 @@ void drawKLine(HDC dc, const RECT& rect, const std::vector<MarketBar>& allBars, 
         closes.push_back(bar.close);
     }
     const auto ma5 = movingAverageParallel(closes, 5);
+    const auto ma10 = movingAverageParallel(closes, 10);
     const auto ma20 = movingAverageParallel(closes, 20);
+    const auto ma60 = movingAverageParallel(closes, 60);
 
     const double span = std::max(0.0001, maxPrice - minPrice);
     auto yOf = [&](double price) {
         const double ratio = (price - minPrice) / span;
         return rect.bottom - static_cast<int>(ratio * (rect.bottom - rect.top));
     };
-
-    HPEN gridPen = CreatePen(PS_SOLID, 1, CLR_GRID);
-    HGDIOBJ oldPen = SelectObject(dc, gridPen);
-    for (int i = 1; i < 5; ++i) {
-        const int y = rect.top + (rect.bottom - rect.top) * i / 5;
-        MoveToEx(dc, rect.left, y, nullptr);
-        LineTo(dc, rect.right, y);
-    }
-    SelectObject(dc, oldPen);
-    DeleteObject(gridPen);
 
     const int width = std::max(3, static_cast<int>((rect.right - rect.left) / static_cast<LONG>(bars.size())));
     const int bodyWidth = std::max(3, width - 3);
@@ -407,7 +539,235 @@ void drawKLine(HDC dc, const RECT& rect, const std::vector<MarketBar>& allBars, 
     }
 
     drawLineWithScale(dc, rect, ma5, minPrice, maxPrice, CLR_YELLOW, 2);
-    drawLineWithScale(dc, rect, ma20, minPrice, maxPrice, CLR_BLUE, 2);
+    drawLineWithScale(dc, rect, ma10, minPrice, maxPrice, CLR_BLUE, 1);
+    drawLineWithScale(dc, rect, ma20, minPrice, maxPrice, CLR_MAGENTA, 1);
+    drawLineWithScale(dc, rect, ma60, minPrice, maxPrice, CLR_GREEN, 1);
+
+    const auto lastFinite = [](const std::vector<double>& values) {
+        for (auto it = values.rbegin(); it != values.rend(); ++it) {
+            if (std::isfinite(*it)) {
+                return *it;
+            }
+        }
+        return 0.0;
+    };
+    drawValueLabel(dc, rect.left + 8, rect.top - 20, L"MA5", lastFinite(ma5), CLR_BLUE);
+    drawValueLabel(dc, rect.left + 112, rect.top - 20, L"MA10", lastFinite(ma10), CLR_YELLOW);
+    drawValueLabel(dc, rect.left + 230, rect.top - 20, L"MA20", lastFinite(ma20), CLR_MAGENTA);
+    drawValueLabel(dc, rect.left + 350, rect.top - 20, L"MA60", lastFinite(ma60), CLR_GREEN);
+}
+
+void drawVolumePanel(HDC dc, const RECT& rect, const std::vector<MarketBar>& allBars, int visibleBars)
+{
+    drawFrameAndGrid(dc, rect, 3);
+    const auto aggregated = aggregateBars(allBars, g_app->periodFactor);
+    const size_t count = std::min(static_cast<size_t>(std::max(20, visibleBars)), aggregated.size());
+    if (count == 0) {
+        return;
+    }
+    const auto first = aggregated.end() - static_cast<std::ptrdiff_t>(count);
+    std::vector<MarketBar> bars(first, aggregated.end());
+    int maxVolume = 1;
+    std::vector<double> volumes;
+    volumes.reserve(bars.size());
+    for (const auto& bar : bars) {
+        maxVolume = std::max(maxVolume, bar.volume);
+        volumes.push_back(static_cast<double>(bar.volume));
+    }
+    const auto ma5 = movingAverageParallel(volumes, 5);
+    const auto ma10 = movingAverageParallel(volumes, 10);
+    const int width = std::max(2, static_cast<int>((rect.right - rect.left) / static_cast<LONG>(bars.size())));
+    for (size_t i = 0; i < bars.size(); ++i) {
+        const auto& bar = bars[i];
+        const int x = rect.left + static_cast<int>(i * (rect.right - rect.left) / bars.size());
+        const int h = static_cast<int>((rect.bottom - rect.top - 16) * static_cast<double>(bar.volume) / maxVolume);
+        RECT body{ x + 1, rect.bottom - h, x + std::max(2, width - 1), rect.bottom - 1 };
+        HBRUSH brush = CreateSolidBrush(bar.close >= bar.open ? CLR_RED : CLR_GREEN);
+        FrameRect(dc, &body, brush);
+        if (bar.close < bar.open) {
+            FillRect(dc, &body, brush);
+        }
+        DeleteObject(brush);
+    }
+    drawLineWithScale(dc, rect, ma5, 0.0, static_cast<double>(maxVolume), CLR_GRAY_BAR, 1);
+    drawLineWithScale(dc, rect, ma10, 0.0, static_cast<double>(maxVolume), CLR_MAGENTA, 1);
+    SetTextColor(dc, CLR_MAGENTA);
+    TextOutW(dc, rect.left + 8, rect.top + 4, L"VOL", 3);
+}
+
+void drawIndicatorPanel(HDC dc, const RECT& rect, const std::vector<MarketBar>& allBars, int visibleBars)
+{
+    drawFrameAndGrid(dc, rect, 3);
+    const auto aggregated = aggregateBars(allBars, g_app->periodFactor);
+    const size_t count = std::min(static_cast<size_t>(std::max(20, visibleBars)), aggregated.size());
+    if (count == 0) {
+        return;
+    }
+    const auto first = aggregated.end() - static_cast<std::ptrdiff_t>(count);
+    std::vector<MarketBar> bars(first, aggregated.end());
+    std::vector<double> highs;
+    std::vector<double> lows;
+    std::vector<double> closes;
+    highs.reserve(bars.size());
+    lows.reserve(bars.size());
+    closes.reserve(bars.size());
+    for (const auto& bar : bars) {
+        highs.push_back(bar.high);
+        lows.push_back(bar.low);
+        closes.push_back(bar.close);
+    }
+
+    SetTextColor(dc, CLR_MUTED);
+    if (g_app->indicatorMode == 0) {
+        TextOutW(dc, rect.left + 8, rect.top + 4, L"Volume selected above", 21);
+        return;
+    }
+    if (g_app->indicatorMode == 1) {
+        const auto rsi6 = rsi(closes, 6);
+        const auto rsi12 = rsi(closes, 12);
+        const auto rsi24 = rsi(closes, 24);
+        drawLineWithScale(dc, rect, rsi6, 0.0, 100.0, CLR_GRAY_BAR, 1);
+        drawLineWithScale(dc, rect, rsi12, 0.0, 100.0, CLR_YELLOW, 1);
+        drawLineWithScale(dc, rect, rsi24, 0.0, 100.0, CLR_MAGENTA, 1);
+        TextOutW(dc, rect.left + 8, rect.top + 4, L"RSI6 / RSI12 / RSI24", 20);
+    } else if (g_app->indicatorMode == 2) {
+        const auto values = kdj(highs, lows, closes, 9);
+        drawLineWithScale(dc, rect, values.k, 0.0, 100.0, CLR_GRAY_BAR, 1);
+        drawLineWithScale(dc, rect, values.d, 0.0, 100.0, CLR_YELLOW, 1);
+        drawLineWithScale(dc, rect, values.j, -20.0, 120.0, CLR_MAGENTA, 1);
+        TextOutW(dc, rect.left + 8, rect.top + 4, L"KDJ K / D / J", 13);
+    } else {
+        const auto values = macd(closes);
+        double minValue = 0.0;
+        double maxValue = 0.0;
+        for (double v : values.hist) {
+            if (std::isfinite(v)) {
+                minValue = std::min(minValue, v);
+                maxValue = std::max(maxValue, v);
+            }
+        }
+        const double span = std::max(0.0001, maxValue - minValue);
+        const int zeroY = rect.bottom - static_cast<int>((0.0 - minValue) / span * (rect.bottom - rect.top));
+        for (size_t i = 0; i < values.hist.size(); ++i) {
+            if (!std::isfinite(values.hist[i])) {
+                continue;
+            }
+            const int x = rect.left + static_cast<int>(i * (rect.right - rect.left) / values.hist.size());
+            const int y = rect.bottom - static_cast<int>((values.hist[i] - minValue) / span * (rect.bottom - rect.top));
+            HPEN pen = CreatePen(PS_SOLID, 2, values.hist[i] >= 0.0 ? CLR_RED : CLR_GREEN);
+            HGDIOBJ oldPen = SelectObject(dc, pen);
+            MoveToEx(dc, x, zeroY, nullptr);
+            LineTo(dc, x, y);
+            SelectObject(dc, oldPen);
+            DeleteObject(pen);
+        }
+        drawLineWithScale(dc, rect, values.dif, minValue, maxValue, CLR_BLUE, 1);
+        drawLineWithScale(dc, rect, values.dea, minValue, maxValue, CLR_YELLOW, 1);
+        TextOutW(dc, rect.left + 8, rect.top + 4, L"MACD DIF / DEA / BAR", 19);
+    }
+}
+
+void text(HDC dc, int x, int y, const std::wstring& value, COLORREF color = CLR_TEXT)
+{
+    SetTextColor(dc, color);
+    TextOutW(dc, x, y, value.c_str(), static_cast<int>(value.size()));
+}
+
+void drawQuoteBar(HDC dc)
+{
+    RECT quote = g_app->rects.quote;
+    HBRUSH bg = CreateSolidBrush(RGB(247, 247, 247));
+    FillRect(dc, &quote, bg);
+    DeleteObject(bg);
+
+    const auto& s = g_app->snapshot;
+    const double change = s.bars.size() >= 2 ? s.lastPrice - s.bars[s.bars.size() - 2].close : 0.0;
+    const double pct = s.bars.size() >= 2 ? change / std::max(1.0, s.bars[s.bars.size() - 2].close) : 0.0;
+    const COLORREF priceColor = change >= 0.0 ? CLR_RED : CLR_GREEN;
+
+    std::wstringstream title;
+    title << L"TEST.SH 000001   " << money(s.lastPrice) << (change >= 0.0 ? L" ▲" : L" ▼");
+    text(dc, quote.left + 12, quote.top + 20, title.str(), priceColor);
+
+    const int x0 = quote.left + 430;
+    const int y0 = quote.top + 10;
+    std::vector<std::wstring> rows;
+    rows.push_back(L"Open: " + (s.bars.empty() ? L"--" : money(s.bars.back().open)));
+    rows.push_back(L"High: " + (s.bars.empty() ? L"--" : money(s.bars.back().high)));
+    rows.push_back(L"Change: " + percent(pct));
+    rows.push_back(L"Turnover: " + money(std::abs(change) * 10000.0));
+    rows.push_back(L"Volume: " + (s.bars.empty() ? L"--" : std::to_wstring(s.bars.back().volume)));
+    rows.push_back(L"Position: " + std::to_wstring(s.account.position));
+    rows.push_back(L"Prev: " + (s.bars.size() >= 2 ? money(s.bars[s.bars.size() - 2].close) : L"--"));
+    rows.push_back(L"Low: " + (s.bars.empty() ? L"--" : money(s.bars.back().low)));
+    rows.push_back(L"Equity: " + money(s.account.equity));
+    rows.push_back(L"Cash: " + money(s.account.cash));
+    rows.push_back(L"MaxDD: " + percent(s.account.maxDrawdown));
+    rows.push_back(L"Trades: " + std::to_wstring(s.trades.size()));
+    for (size_t i = 0; i < rows.size(); ++i) {
+        const int col = static_cast<int>(i % 6);
+        const int row = static_cast<int>(i / 6);
+        text(dc, x0 + col * 140, y0 + row * 26, rows[i], i == 2 ? priceColor : CLR_TEXT);
+    }
+}
+
+void drawTabsBar(HDC dc)
+{
+    RECT tabs = g_app->rects.tabs;
+    HBRUSH orange = CreateSolidBrush(CLR_ORANGE);
+    FillRect(dc, &tabs, orange);
+    DeleteObject(orange);
+    text(dc, tabs.left + 14, tabs.top + 10, L"Period", RGB(255, 255, 255));
+    text(dc, tabs.left + 546, tabs.top + 10, L"Main indicators: MA5  MA10  MA20  MA60", RGB(255, 255, 255));
+}
+
+void drawSidePanel(HDC dc)
+{
+    RECT side = g_app->rects.side;
+    HBRUSH bg = CreateSolidBrush(RGB(246, 246, 246));
+    FillRect(dc, &side, bg);
+    DeleteObject(bg);
+
+    int y = side.top + 16;
+    text(dc, side.left + 14, y, L"Stage Return", CLR_TEXT);
+    y += 30;
+    text(dc, side.left + 20, y, L"5D:  -1.89%", CLR_GREEN);
+    text(dc, side.left + 150, y, L"20D:  2.73%", CLR_RED);
+    y += 28;
+    text(dc, side.left + 20, y, L"60D:  0.73%", CLR_RED);
+    text(dc, side.left + 150, y, L"YTD:  4.87%", CLR_RED);
+
+    y += 48;
+    text(dc, side.left + 14, y, L"Capital Flow", CLR_TEXT);
+    y += 30;
+    text(dc, side.left + 22, y, L"Main Inflow", CLR_TEXT);
+    text(dc, side.left + 190, y, L"6084", CLR_RED);
+    y += 26;
+    text(dc, side.left + 22, y, L"Main Outflow", CLR_TEXT);
+    text(dc, side.left + 190, y, L"6242", CLR_GREEN);
+    y += 26;
+    text(dc, side.left + 22, y, L"Net Flow", CLR_TEXT);
+    text(dc, side.left + 190, y, L"158.8", CLR_RED);
+
+    y += 54;
+    text(dc, side.left + 14, y, L"Realtime Ticks", CLR_TEXT);
+    y += 30;
+    int shown = 0;
+    for (auto it = g_app->snapshot.trades.rbegin(); it != g_app->snapshot.trades.rend() && shown < 9; ++it, ++shown) {
+        std::wstringstream ss;
+        ss << L"T+" << it->timestamp << L"  " << money(it->price) << L"  " << it->volume;
+        text(dc, side.left + 22, y + shown * 24, ss.str(), it->isBuy ? CLR_RED : CLR_GREEN);
+    }
+    if (shown == 0) {
+        text(dc, side.left + 22, y, L"No matched trades yet.", CLR_MUTED);
+    }
+
+    const int sy = side.bottom - 224;
+    text(dc, side.left + 14, sy - 28, L"Backtest Settings", CLR_TEXT);
+    text(dc, side.left + 14, sy + 4, L"Strategy", CLR_MUTED);
+    text(dc, side.left + 14, sy + 62, L"Initial Cash", CLR_MUTED);
+    text(dc, side.left + 14, sy + 120, L"Short MA", CLR_MUTED);
+    text(dc, side.left + 142, sy + 120, L"Long MA", CLR_MUTED);
 }
 
 void drawDashboard(HWND window, HDC dc)
@@ -416,53 +776,22 @@ void drawDashboard(HWND window, HDC dc)
     GetClientRect(window, &client);
     FillRect(dc, &client, g_app->bgBrush);
 
-    RECT chart = g_app->rects.chart;
-    FillRect(dc, &chart, g_app->panelBrush);
-    HBRUSH border = CreateSolidBrush(CLR_BORDER);
-    FrameRect(dc, &chart, border);
-
     SetBkMode(dc, TRANSPARENT);
     SetTextColor(dc, CLR_TEXT);
-    RECT title = chart;
-    title.left += 16;
-    title.top += 10;
-    DrawTextW(dc, L"TEST.SH  K-Line / MA / Equity", -1, &title, DT_TOP | DT_LEFT | DT_SINGLELINE);
+    drawQuoteBar(dc);
+    drawTabsBar(dc);
+    drawKLine(dc, g_app->rects.chart, g_app->snapshot.bars, g_app->visibleBars);
+    drawVolumePanel(dc, g_app->rects.volume, g_app->snapshot.bars, g_app->visibleBars);
+    drawIndicatorPanel(dc, g_app->rects.indicator, g_app->snapshot.bars, g_app->visibleBars);
+    drawSidePanel(dc);
 
-    RECT inner = chart;
-    inner.left += 20;
-    inner.right -= 16;
-    inner.top += 42;
-    inner.bottom -= 88;
-    drawKLine(dc, inner, g_app->snapshot.bars, g_app->visibleBars);
-
-    RECT equityRect = chart;
-    equityRect.left += 20;
-    equityRect.right -= 16;
-    equityRect.top = inner.bottom + 18;
-    equityRect.bottom -= 22;
-    HBRUSH equityBrush = CreateSolidBrush(CLR_PANEL_2);
-    FillRect(dc, &equityRect, equityBrush);
-    DeleteObject(equityBrush);
-    FrameRect(dc, &equityRect, border);
-    drawSeries(dc, equityRect, g_app->snapshot.equities, CLR_GREEN);
-
-    RECT hint = chart;
-    hint.left += 16;
-    hint.top = chart.bottom - 20;
-    SetTextColor(dc, CLR_MUTED);
-    DrawTextW(dc, g_app->chartHint.c_str(), -1, &hint, DT_LEFT | DT_SINGLELINE);
-    DeleteObject(border);
+    text(dc, g_app->rects.indicator.left, g_app->rects.indicator.bottom + 6, g_app->chartHint, CLR_MUTED);
 }
 
 void drawLabels(HDC dc)
 {
     SetBkMode(dc, TRANSPARENT);
     SetTextColor(dc, CLR_MUTED);
-    RECT r = g_app->rects.side;
-    TextOutW(dc, r.left, r.top, L"Strategy", 8);
-    TextOutW(dc, r.left, r.top + 58, L"Initial Cash", 12);
-    TextOutW(dc, r.left, r.top + 116, L"Short MA", 8);
-    TextOutW(dc, r.left + 128, r.top + 116, L"Long MA", 7);
     TextOutW(dc, g_app->rects.bottom.left, g_app->rects.bottom.top, L"Orders", 6);
     TextOutW(dc, g_app->rects.bottom.left + ((g_app->rects.bottom.right - g_app->rects.bottom.left - 20) / 3) + 10, g_app->rects.bottom.top, L"Trades", 6);
     TextOutW(dc, g_app->rects.bottom.left + (((g_app->rects.bottom.right - g_app->rects.bottom.left - 20) / 3) + 10) * 2, g_app->rects.bottom.top, L"Logs", 4);
@@ -555,6 +884,24 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
         case IDC_BTN_OPTIMIZE:
             g_app->engine.optimize(window);
             break;
+        case IDC_COMBO_PERIOD:
+            if (HIWORD(wParam) == CBN_SELCHANGE) {
+                g_app->periodFactor = selectedPeriodFactor();
+                refreshLists(window);
+            }
+            break;
+        case IDC_COMBO_SPEED:
+            if (HIWORD(wParam) == CBN_SELCHANGE) {
+                g_app->engine.setReplayDelay(selectedReplayDelay());
+                refreshLists(window);
+            }
+            break;
+        case IDC_COMBO_INDICATOR:
+            if (HIWORD(wParam) == CBN_SELCHANGE) {
+                g_app->indicatorMode = comboSelection(g_app->hIndicator, 1);
+                refreshLists(window);
+            }
+            break;
         case IDM_ABOUT:
             DialogBox(g_instance, MAKEINTRESOURCE(IDD_ABOUTBOX), window, About);
             break;
@@ -597,16 +944,17 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
             const int x = GET_X_LPARAM(lParam);
             const int y = GET_Y_LPARAM(lParam);
             RECT chartInner = g_app->rects.chart;
-            chartInner.left += 20;
-            chartInner.right -= 16;
-            chartInner.top += 42;
-            chartInner.bottom -= 88;
             if (PtInRect(&chartInner, POINT{ x, y }) && !g_app->snapshot.bars.empty()) {
-                const size_t count = std::min(static_cast<size_t>(std::max(20, g_app->visibleBars)), g_app->snapshot.bars.size());
+                const auto bars = aggregateBars(g_app->snapshot.bars, g_app->periodFactor);
+                const size_t count = std::min(static_cast<size_t>(std::max(20, g_app->visibleBars)), bars.size());
+                if (count == 0) {
+                    break;
+                }
                 const int chartWidth = std::max(1, static_cast<int>(chartInner.right - chartInner.left));
                 const int relativeX = std::clamp(static_cast<int>(x - chartInner.left), 0, chartWidth);
                 const size_t index = std::min(count - 1, static_cast<size_t>(static_cast<double>(relativeX) / chartWidth * count));
-                const auto& bar = *(g_app->snapshot.bars.end() - static_cast<std::ptrdiff_t>(count) + static_cast<std::ptrdiff_t>(index));
+                const auto& bar = *(bars.end() - static_cast<std::ptrdiff_t>(count) + static_cast<std::ptrdiff_t>(index));
+                g_app->selectedBar = static_cast<int>(index);
                 std::wstringstream ss;
                 ss << L"Bar " << bar.timestamp
                    << L"  O " << money(bar.open)
@@ -636,8 +984,19 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
             const int x = GET_X_LPARAM(lParam);
             const int y = GET_Y_LPARAM(lParam);
             if (PtInRect(&g_app->rects.chart, POINT{ x, y })) {
+                const auto bars = aggregateBars(g_app->snapshot.bars, g_app->periodFactor);
+                std::wstring hoverPrice = g_app->snapshot.lastPrice > 0.0 ? money(g_app->snapshot.lastPrice) : L"--";
+                if (!bars.empty()) {
+                    const size_t count = std::min(static_cast<size_t>(std::max(20, g_app->visibleBars)), bars.size());
+                    const int chartWidth = std::max(1, static_cast<int>(g_app->rects.chart.right - g_app->rects.chart.left));
+                    const int relativeX = std::clamp(static_cast<int>(x - g_app->rects.chart.left), 0, chartWidth);
+                    const size_t index = std::min(count - 1, static_cast<size_t>(static_cast<double>(relativeX) / chartWidth * count));
+                    const auto& bar = *(bars.end() - static_cast<std::ptrdiff_t>(count) + static_cast<std::ptrdiff_t>(index));
+                    hoverPrice = money(bar.close);
+                }
                 std::wstringstream ss;
                 ss << L"Mouse chart position x=" << x << L", y=" << y
+                   << L" | Hover price " << hoverPrice
                    << L" | Last price " << money(g_app->snapshot.lastPrice);
                 SetWindowTextW(g_app->hStatus, ss.str().c_str());
             }

@@ -7,6 +7,7 @@ Pure Win32 C++ stock trading and quantitative backtest simulator.
 - Windows native entry point: `wWinMain`, window class registration, window procedure, and message loop.
 - Native controls: buttons, combo box, edit boxes, list boxes, and status text.
 - Custom drawing with GDI: dark trading-style dashboard, K-line chart, moving averages, and equity curve.
+- Market-style layout: quote header, orange period toolbar, K-line chart, volume panel, technical indicator panel, and right-side quote/fund-flow summary.
 - Mouse and keyboard messages:
   - `Space`: start or pause the backtest
   - `R`: reset
@@ -48,3 +49,6 @@ The project builds as a normal Windows subsystem executable and does not require
 - `Orders` shows strategy orders after risk and matching, including status such as `Filled`, `Part filled`, `Open limit`, or `Rejected by risk`.
 - `Trades` shows actual matched executions. A trade changes cash, position, equity, and drawdown.
 - `Strategy` currently uses the moving-average crossover implementation. `Short MA` and `Long MA` control the two moving average windows used by that strategy.
+- The chart can be viewed as `1m`, `5m`, `15m`, `30m`, `60m`, `Day`, or `Week` by aggregating the synthetic bars in memory.
+- Replay speed can be changed while the simulation is running.
+- The lower indicator panel supports `Volume`, `RSI`, `KDJ`, and `MACD`; the main chart shows MA5, MA10, MA20, and MA60.

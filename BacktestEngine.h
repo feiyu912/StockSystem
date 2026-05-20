@@ -38,6 +38,7 @@ public:
     ~SimulationEngine();
 
     void configure(double initialCash, int shortWindow, int longWindow);
+    void setReplayDelay(int milliseconds);
     void start(HWND notifyWindow);
     void pauseOrResume();
     void stop();
@@ -85,6 +86,7 @@ private:
     double initialCash_ = 100000.0;
     int shortWindow_ = 5;
     int longWindow_ = 30;
+    std::atomic<int> replayDelayMs_ = 90;
     double lastPrice_ = 100.0;
     Account account_;
     std::vector<MarketBar> bars_;
