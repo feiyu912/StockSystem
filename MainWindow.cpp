@@ -276,26 +276,26 @@ void layout(HWND window)
 
     g_app->rects.quote = { gap, top, width - gap, top + quoteHeight };
     g_app->rects.tabs = { gap, top + quoteHeight + 4, width - sideWidth - gap * 2, top + quoteHeight + tabHeight };
-    g_app->rects.chart = { 60, plotTop, mainWidth, plotTop + (chartBottom - plotTop) * 56 / 100 };
-    g_app->rects.volume = { 60, g_app->rects.chart.bottom + 12, mainWidth, g_app->rects.chart.bottom + 118 };
-    g_app->rects.indicator = { 60, g_app->rects.volume.bottom + 10, mainWidth, chartBottom };
+    g_app->rects.chart = { 82, plotTop + 18, mainWidth, plotTop + (chartBottom - plotTop) * 55 / 100 };
+    g_app->rects.volume = { 82, g_app->rects.chart.bottom + 28, mainWidth, g_app->rects.chart.bottom + 128 };
+    g_app->rects.indicator = { 82, g_app->rects.volume.bottom + 28, mainWidth, chartBottom };
     g_app->rects.side = { width - sideWidth - gap, top + quoteHeight + 4, width - gap, chartBottom };
     g_app->rects.bottom = { 14, height - bottomHeight, width - 14, height - 32 };
 
-    MoveWindow(g_app->hStart, 16, top + 32, 70, 24, TRUE);
-    MoveWindow(g_app->hPause, 92, top + 32, 70, 24, TRUE);
-    MoveWindow(g_app->hReset, 168, top + 32, 70, 24, TRUE);
-    MoveWindow(g_app->hOptimize, 244, top + 32, 92, 24, TRUE);
-    MoveWindow(g_app->hPeriod, 190, g_app->rects.tabs.top + 6, 120, 200, TRUE);
-    MoveWindow(g_app->hSpeed, 318, g_app->rects.tabs.top + 6, 100, 200, TRUE);
-    MoveWindow(g_app->hIndicator, 426, g_app->rects.tabs.top + 6, 110, 200, TRUE);
+    MoveWindow(g_app->hPeriod, 96, g_app->rects.tabs.top + 6, 92, 200, TRUE);
+    MoveWindow(g_app->hSpeed, 266, g_app->rects.tabs.top + 6, 112, 200, TRUE);
+    MoveWindow(g_app->hIndicator, 468, g_app->rects.tabs.top + 6, 122, 200, TRUE);
 
     const int sx = g_app->rects.side.left;
-    const int sy = g_app->rects.side.bottom - 210;
+    const int sy = g_app->rects.side.bottom - 250;
     MoveWindow(g_app->hStrategy, sx + 14, sy + 26, sideWidth - 30, 26, TRUE);
     MoveWindow(g_app->hCash, sx + 14, sy + 84, sideWidth - 30, 24, TRUE);
     MoveWindow(g_app->hShort, sx + 14, sy + 142, 110, 24, TRUE);
     MoveWindow(g_app->hLong, sx + 142, sy + 142, 110, 24, TRUE);
+    MoveWindow(g_app->hStart, sx + 14, sy + 188, 64, 24, TRUE);
+    MoveWindow(g_app->hPause, sx + 84, sy + 188, 64, 24, TRUE);
+    MoveWindow(g_app->hReset, sx + 154, sy + 188, 64, 24, TRUE);
+    MoveWindow(g_app->hOptimize, sx + 224, sy + 188, 64, 24, TRUE);
 
     const int third = (g_app->rects.bottom.right - g_app->rects.bottom.left - 20) / 3;
     MoveWindow(g_app->hOrders, g_app->rects.bottom.left, g_app->rects.bottom.top + 24, third, bottomHeight - 60, TRUE);
@@ -475,6 +475,33 @@ void drawValueLabel(HDC dc, int x, int y, const wchar_t* name, double value, COL
     TextOutW(dc, x, y, ss.str().c_str(), static_cast<int>(ss.str().size()));
 }
 
+void drawYAxisLabels(HDC dc, const RECT& rect, double minValue, double maxValue, int decimals)
+{
+    SetTextColor(dc, CLR_TEXT);
+    for (int i = 0; i <= 4; ++i) {
+        const double value = maxValue - (maxValue - minValue) * i / 4.0;
+        const int y = rect.top + (rect.bottom - rect.top) * i / 4 - 8;
+        std::wstringstream ss;
+        ss << std::fixed << std::setprecision(decimals) << value;
+        TextOutW(dc, rect.left - 76, y, ss.str().c_str(), static_cast<int>(ss.str().size()));
+    }
+}
+
+void drawTimeLabels(HDC dc, const RECT& rect, const std::vector<MarketBar>& bars)
+{
+    if (bars.empty()) {
+        return;
+    }
+    SetTextColor(dc, CLR_TEXT);
+    for (int i = 0; i <= 4; ++i) {
+        const size_t index = std::min(bars.size() - 1, static_cast<size_t>(i * (bars.size() - 1) / 4));
+        const int x = rect.left + (rect.right - rect.left) * i / 4 - 18;
+        std::wstringstream ss;
+        ss << L"T+" << bars[index].timestamp;
+        TextOutW(dc, x, rect.bottom + 5, ss.str().c_str(), static_cast<int>(ss.str().size()));
+    }
+}
+
 void drawKLine(HDC dc, const RECT& rect, const std::vector<MarketBar>& allBars, int visibleBars)
 {
     drawFrameAndGrid(dc, rect, 5);
@@ -501,6 +528,8 @@ void drawKLine(HDC dc, const RECT& rect, const std::vector<MarketBar>& allBars, 
         maxPrice = std::max(maxPrice, bar.high);
         closes.push_back(bar.close);
     }
+    drawYAxisLabels(dc, rect, minPrice, maxPrice, 2);
+    drawTimeLabels(dc, rect, bars);
     const auto ma5 = movingAverageParallel(closes, 5);
     const auto ma10 = movingAverageParallel(closes, 10);
     const auto ma20 = movingAverageParallel(closes, 20);
@@ -574,6 +603,8 @@ void drawVolumePanel(HDC dc, const RECT& rect, const std::vector<MarketBar>& all
         maxVolume = std::max(maxVolume, bar.volume);
         volumes.push_back(static_cast<double>(bar.volume));
     }
+    drawYAxisLabels(dc, rect, 0.0, static_cast<double>(maxVolume), 0);
+    drawTimeLabels(dc, rect, bars);
     const auto ma5 = movingAverageParallel(volumes, 5);
     const auto ma10 = movingAverageParallel(volumes, 10);
     const int width = std::max(2, static_cast<int>((rect.right - rect.left) / static_cast<LONG>(bars.size())));
@@ -616,6 +647,7 @@ void drawIndicatorPanel(HDC dc, const RECT& rect, const std::vector<MarketBar>& 
         lows.push_back(bar.low);
         closes.push_back(bar.close);
     }
+    drawTimeLabels(dc, rect, bars);
 
     SetTextColor(dc, CLR_MUTED);
     if (g_app->indicatorMode == 0) {
@@ -623,6 +655,7 @@ void drawIndicatorPanel(HDC dc, const RECT& rect, const std::vector<MarketBar>& 
         return;
     }
     if (g_app->indicatorMode == 1) {
+        drawYAxisLabels(dc, rect, 0.0, 100.0, 0);
         const auto rsi6 = rsi(closes, 6);
         const auto rsi12 = rsi(closes, 12);
         const auto rsi24 = rsi(closes, 24);
@@ -631,6 +664,7 @@ void drawIndicatorPanel(HDC dc, const RECT& rect, const std::vector<MarketBar>& 
         drawLineWithScale(dc, rect, rsi24, 0.0, 100.0, CLR_MAGENTA, 1);
         TextOutW(dc, rect.left + 8, rect.top + 4, L"RSI6 / RSI12 / RSI24", 20);
     } else if (g_app->indicatorMode == 2) {
+        drawYAxisLabels(dc, rect, 0.0, 100.0, 0);
         const auto values = kdj(highs, lows, closes, 9);
         drawLineWithScale(dc, rect, values.k, 0.0, 100.0, CLR_GRAY_BAR, 1);
         drawLineWithScale(dc, rect, values.d, 0.0, 100.0, CLR_YELLOW, 1);
@@ -646,6 +680,7 @@ void drawIndicatorPanel(HDC dc, const RECT& rect, const std::vector<MarketBar>& 
                 maxValue = std::max(maxValue, v);
             }
         }
+        drawYAxisLabels(dc, rect, minValue, maxValue, 2);
         const double span = std::max(0.0001, maxValue - minValue);
         const int zeroY = rect.bottom - static_cast<int>((0.0 - minValue) / span * (rect.bottom - rect.top));
         for (size_t i = 0; i < values.hist.size(); ++i) {
@@ -686,7 +721,7 @@ void drawQuoteBar(HDC dc)
     const COLORREF priceColor = change >= 0.0 ? CLR_RED : CLR_GREEN;
 
     std::wstringstream title;
-    title << L"TEST.SH 000001   " << money(s.lastPrice) << (change >= 0.0 ? L" ▲" : L" ▼");
+    title << L"TEST.SH 000001   " << money(s.lastPrice) << (change >= 0.0 ? L" UP" : L" DOWN");
     text(dc, quote.left + 12, quote.top + 20, title.str(), priceColor);
 
     const int x0 = quote.left + 430;
@@ -718,7 +753,9 @@ void drawTabsBar(HDC dc)
     FillRect(dc, &tabs, orange);
     DeleteObject(orange);
     text(dc, tabs.left + 14, tabs.top + 10, L"Period", RGB(255, 255, 255));
-    text(dc, tabs.left + 546, tabs.top + 10, L"Main indicators: MA5  MA10  MA20  MA60", RGB(255, 255, 255));
+    text(dc, tabs.left + 214, tabs.top + 10, L"Speed", RGB(255, 255, 255));
+    text(dc, tabs.left + 404, tabs.top + 10, L"Indicator", RGB(255, 255, 255));
+    text(dc, tabs.left + 620, tabs.top + 10, L"Main indicators: MA5  MA10  MA20  MA60", RGB(255, 255, 255));
 }
 
 void drawSidePanel(HDC dc)
@@ -762,7 +799,7 @@ void drawSidePanel(HDC dc)
         text(dc, side.left + 22, y, L"No matched trades yet.", CLR_MUTED);
     }
 
-    const int sy = side.bottom - 224;
+    const int sy = side.bottom - 264;
     text(dc, side.left + 14, sy - 28, L"Backtest Settings", CLR_TEXT);
     text(dc, side.left + 14, sy + 4, L"Strategy", CLR_MUTED);
     text(dc, side.left + 14, sy + 62, L"Initial Cash", CLR_MUTED);

@@ -260,7 +260,6 @@ void SimulationEngine::strategyLoop()
 
 void SimulationEngine::matchingLoop()
 {
-    OrderBook book;
     RiskManager risk;
     Order order;
 
@@ -273,7 +272,6 @@ void SimulationEngine::matchingLoop()
             account = account_;
         }
 
-        book.seedLiquidity(lastPrice, order.timestamp);
         if (!risk.check(order, account, lastPrice)) {
             recordOrder(order, L"Rejected by risk", 0, 0.0);
             std::wstringstream ss;
@@ -282,6 +280,9 @@ void SimulationEngine::matchingLoop()
             continue;
         }
 
+        OrderBook book;
+        const double simulatedMid = order.isBuy ? order.price - 0.10 : order.price + 0.10;
+        book.seedLiquidity(simulatedMid, order.timestamp);
         const auto trades = book.addOrder(order);
         int filledVolume = 0;
         double notional = 0.0;
