@@ -123,7 +123,7 @@ void SimulationEngine::reset()
 UiSnapshot SimulationEngine::snapshot() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    return UiSnapshot{ bars_, prices_, equities_, orders_, trades_, logs_, account_, concurrency_, lastPrice_, running_, paused_ };
+    return UiSnapshot{ bars_, prices_, equities_, orders_, trades_, logs_, account_, concurrency_, dataStore_.snapshot(), lastPrice_, running_, paused_ };
 }
 
 void SimulationEngine::optimize(HWND notifyWindow)
@@ -218,6 +218,9 @@ void SimulationEngine::marketLoop()
         concurrency_.marketActive = true;
     }
     addLog(L"Market thread started: generates synthetic OHLC bars.");
+    dataStore_.loadOrCreate(L"data\\akshare_export_TEST_SH.csv");
+    auto replayBars = dataStore_.allBars();
+    addLog(L"Local data store loaded: data/akshare_export_TEST_SH.csv, cached in memory for replay and user queries.");
 
     std::mt19937 rng(std::random_device{}());
     std::normal_distribution<double> noise(0.0002, 0.006);
@@ -228,21 +231,24 @@ void SimulationEngine::marketLoop()
             std::this_thread::sleep_for(std::chrono::milliseconds(80));
         }
 
-        const double open = price;
-        const double close = std::max(5.0, open * (1.0 + noise(rng)));
-        const double shadow = std::abs(close - open) + 0.20 + static_cast<double>(rng() % 40) / 100.0;
-        const double high = std::max(open, close) + shadow * 0.55;
-        const double low = std::max(1.0, std::min(open, close) - shadow * 0.45);
-        price = close;
+        if (replayBars.empty()) {
+            const double open = price;
+            const double close = std::max(5.0, open * (1.0 + noise(rng)));
+            const double shadow = std::abs(close - open) + 0.20 + static_cast<double>(rng() % 40) / 100.0;
+            MarketBar generated;
+            generated.open = open;
+            generated.high = std::max(open, close) + shadow * 0.55;
+            generated.low = std::max(1.0, std::min(open, close) - shadow * 0.45);
+            generated.close = close;
+            generated.price = close;
+            generated.volume = 100 + static_cast<int>(rng() % 900);
+            replayBars.push_back(generated);
+            price = close;
+        }
 
-        MarketBar event;
-        event.price = price;
-        event.open = open;
-        event.high = high;
-        event.low = low;
-        event.close = close;
-        event.volume = 100 + static_cast<int>(rng() % 900);
+        MarketBar event = replayBars[static_cast<size_t>((timestamp - 1) % replayBars.size())];
         event.timestamp = timestamp;
+        price = event.close;
 
         {
             std::lock_guard<std::mutex> lock(mutex_);
@@ -395,13 +401,18 @@ void SimulationEngine::userLoadLoop()
         std::vector<std::future<ConcurrencySnapshot::UserSession>> futures;
         futures.reserve(baseUsers.size());
         for (const auto& user : baseUsers) {
-            futures.push_back(std::async(std::launch::async, [user, cycle] {
+            futures.push_back(std::async(std::launch::async, [this, user, cycle] {
                 ConcurrencySnapshot::UserSession updated = user;
                 std::mt19937 localRng(static_cast<unsigned>(user.id * 7919 + cycle * 104729));
                 std::normal_distribution<double> pnl(0.0, 120.0);
-                updated.equity = std::max(1000.0, updated.equity + pnl(localRng));
+                const auto rows = dataStore_.queryRange(static_cast<size_t>((cycle * 17 + user.id * 31) % 1000), 120);
+                double localPnl = pnl(localRng);
+                if (!rows.empty()) {
+                    localPnl += (rows.back().close - rows.front().open) * 10.0;
+                }
+                updated.equity = std::max(1000.0, updated.equity + localPnl);
                 updated.requests += 1 + static_cast<int>(localRng() % 4);
-                updated.latencyMs = 8 + static_cast<int>(localRng() % 45);
+                updated.latencyMs = 8 + static_cast<int>(localRng() % 45) + static_cast<int>(rows.size() / 80);
                 updated.active = true;
                 return updated;
             }));

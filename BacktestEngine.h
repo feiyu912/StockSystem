@@ -1,5 +1,6 @@
 #pragma once
 
+#include "MarketDataStore.h"
 #include "TradingCore.h"
 
 #include <atomic>
@@ -58,6 +59,7 @@ struct UiSnapshot {
     std::vector<std::wstring> logs;
     Account account;
     ConcurrencySnapshot concurrency;
+    DataStoreSnapshot dataStore;
     double lastPrice = 100.0;
     bool running = false;
     bool paused = false;
@@ -121,6 +123,7 @@ private:
     std::atomic<int> replayDelayMs_ = 90;
     double lastPrice_ = 100.0;
     mutable ConcurrencySnapshot concurrency_;
+    mutable MarketDataStore dataStore_;
     Account account_;
     std::vector<MarketBar> bars_;
     std::vector<double> prices_;

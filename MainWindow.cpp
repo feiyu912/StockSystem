@@ -816,6 +816,25 @@ void drawSidePanel(HDC dc)
     text(dc, side.left + 22, y, L"Parallel MA: std::execution::par", CLR_MUTED);
 
     y += 28;
+    text(dc, side.left + 14, y, L"Local Data Store", CLR_TEXT);
+    y += 22;
+    const auto& ds = g_app->snapshot.dataStore;
+    line.str(L"");
+    line.clear();
+    line << L"Rows " << ds.rows << L"  cache " << (ds.cacheReady ? L"READY" : L"COLD");
+    text(dc, side.left + 22, y, line.str(), ds.cacheReady ? CLR_RED : CLR_MUTED);
+    y += 20;
+    line.str(L"");
+    line.clear();
+    line << L"Disk reads " << ds.diskReads << L"  cache hits " << ds.cacheHits;
+    text(dc, side.left + 22, y, line.str(), CLR_MUTED);
+    y += 20;
+    line.str(L"");
+    line.clear();
+    line << L"Range queries " << ds.rangeQueries << L"  " << std::fixed << std::setprecision(3) << ds.lastQueryMs << L"ms";
+    text(dc, side.left + 22, y, line.str(), CLR_MUTED);
+
+    y += 28;
     text(dc, side.left + 14, y, L"User Load Monitor", CLR_TEXT);
     y += 24;
     line.str(L"");

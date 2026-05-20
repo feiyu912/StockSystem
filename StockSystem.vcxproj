@@ -144,6 +144,7 @@
     <ClInclude Include="framework.h" />
     <ClInclude Include="Indicators.h" />
     <ClInclude Include="MainWindow.h" />
+    <ClInclude Include="MarketDataStore.h" />
     <ClInclude Include="Resource.h" />
     <ClInclude Include="StockSystem.h" />
     <ClInclude Include="targetver.h" />
@@ -153,6 +154,7 @@
     <ClCompile Include="BacktestEngine.cpp" />
     <ClCompile Include="Indicators.cpp" />
     <ClCompile Include="MainWindow.cpp" />
+    <ClCompile Include="MarketDataStore.cpp" />
     <ClCompile Include="StockSystem.cpp" />
     <ClCompile Include="TradingCore.cpp" />
   </ItemGroup>
