@@ -139,6 +139,7 @@
     </Manifest>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="AppMessages.h" />
     <ClInclude Include="BacktestEngine.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="Indicators.h" />

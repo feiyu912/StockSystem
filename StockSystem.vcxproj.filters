@@ -15,6 +15,9 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="AppMessages.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
     <ClInclude Include="BacktestEngine.h">
       <Filter>头文件</Filter>
     </ClInclude>

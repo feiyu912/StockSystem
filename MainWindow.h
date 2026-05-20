@@ -1,11 +1,6 @@
 #pragma once
 
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-
-constexpr UINT WM_APP_ENGINE_UPDATE = WM_APP + 1;
+#include "AppMessages.h"
 
 ATOM RegisterMainWindowClass(HINSTANCE instance);
 BOOL InitMainWindow(HINSTANCE instance, int showCommand);

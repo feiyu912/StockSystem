@@ -41,3 +41,10 @@ The project builds as a normal Windows subsystem executable and does not require
 - `StockSystem.vcxproj`: Visual Studio project configured for Windows native build.
 - `StockSystem.rc`, `Resource.h`, `StockSystem.ico`, `small.ico`: Windows resources.
 - `framework.h`, `targetver.h`, `StockSystem.h`: standard Win32 project headers.
+
+## Runtime Notes
+
+- Market data is synthetic. `SimulationEngine::marketLoop` generates random OHLC bars in memory for the demo, so the app does not need network access or a data vendor.
+- `Orders` shows strategy orders after risk and matching, including status such as `Filled`, `Part filled`, `Open limit`, or `Rejected by risk`.
+- `Trades` shows actual matched executions. A trade changes cash, position, equity, and drawdown.
+- `Strategy` currently uses the moving-average crossover implementation. `Short MA` and `Long MA` control the two moving average windows used by that strategy.

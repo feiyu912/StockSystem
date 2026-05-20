@@ -1,5 +1,5 @@
 #include "BacktestEngine.h"
-#include "MainWindow.h"
+#include "AppMessages.h"
 
 #include <algorithm>
 #include <chrono>
@@ -245,8 +245,9 @@ void SimulationEngine::strategyLoop()
         if (order) {
             orderQueue_.push(*order);
             std::wstringstream ss;
-            ss << L"Signal generated order #" << order->id << L" "
-               << (order->isBuy ? L"BUY" : L"SELL") << L" @ " << money(order->price);
+            ss << L"Strategy signal: order #" << order->id << L" "
+               << (order->isBuy ? L"BUY" : L"SELL") << L" "
+               << order->volume << L" @ " << money(order->price);
             addLog(ss.str());
         }
     }
@@ -268,22 +269,36 @@ void SimulationEngine::matchingLoop()
         }
 
         book.seedLiquidity(lastPrice, order.timestamp);
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            orders_.push_back(order);
-            trim(orders_, 80);
-        }
-
         if (!risk.check(order, account, lastPrice)) {
-            addLog(L"Risk rejected an order before matching.");
+            recordOrder(order, L"Rejected by risk", 0, 0.0);
+            std::wstringstream ss;
+            ss << L"Risk rejected order #" << order.id << L".";
+            addLog(ss.str());
             continue;
         }
 
-        for (const auto& trade : book.addOrder(order)) {
+        const auto trades = book.addOrder(order);
+        int filledVolume = 0;
+        double notional = 0.0;
+        for (const auto& trade : trades) {
+            filledVolume += trade.volume;
+            notional += trade.price * trade.volume;
             applyTrade(trade);
         }
+        const double averageFill = filledVolume > 0 ? notional / filledVolume : 0.0;
+        const std::wstring status = filledVolume == 0
+            ? L"Open limit"
+            : (filledVolume == order.volume ? L"Filled" : L"Part filled");
+        recordOrder(order, status, filledVolume, averageFill);
         notify();
     }
+}
+
+void SimulationEngine::recordOrder(const Order& order, const std::wstring& status, int filledVolume, double averageFillPrice)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    orders_.push_back(OrderRecord{ order, status, filledVolume, averageFillPrice });
+    trim(orders_, 80);
 }
 
 void SimulationEngine::applyTrade(const Trade& trade)

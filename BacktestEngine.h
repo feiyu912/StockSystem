@@ -13,11 +13,18 @@
 #endif
 #include <windows.h>
 
+struct OrderRecord {
+    Order order;
+    std::wstring status;
+    int filledVolume = 0;
+    double averageFillPrice = 0.0;
+};
+
 struct UiSnapshot {
     std::vector<MarketBar> bars;
     std::vector<double> prices;
     std::vector<double> equities;
-    std::vector<Order> orders;
+    std::vector<OrderRecord> orders;
     std::vector<Trade> trades;
     std::vector<std::wstring> logs;
     Account account;
@@ -51,6 +58,7 @@ private:
     void marketLoop();
     void strategyLoop();
     void matchingLoop();
+    void recordOrder(const Order& order, const std::wstring& status, int filledVolume, double averageFillPrice);
     void applyTrade(const Trade& trade);
     void addLog(const std::wstring& text);
     void resetLocked();
@@ -82,7 +90,7 @@ private:
     std::vector<MarketBar> bars_;
     std::vector<double> prices_;
     std::vector<double> equities_;
-    std::vector<Order> orders_;
+    std::vector<OrderRecord> orders_;
     std::vector<Trade> trades_;
     std::vector<std::wstring> logs_;
 };

@@ -1,4 +1,4 @@
-#include "MainWindow.h"
+﻿#include "MainWindow.h"
 
 #include "BacktestEngine.h"
 #include "Indicators.h"
@@ -64,13 +64,16 @@ struct AppState {
     HWND hStatus = nullptr;
     Rects rects;
     int visibleBars = 110;
-    std::wstring chartHint = L"Click the chart to inspect a bar. Mouse wheel zooms the K-line view.";
+    std::wstring chartHint = L"Synthetic in-memory market data. Click a bar for OHLC; mouse wheel zooms.";
     HBRUSH bgBrush = CreateSolidBrush(CLR_BG);
     HBRUSH panelBrush = CreateSolidBrush(CLR_PANEL);
     HBRUSH editBrush = CreateSolidBrush(CLR_PANEL_2);
     HFONT uiFont = nullptr;
     SimulationEngine engine;
     UiSnapshot snapshot;
+    size_t renderedOrderCount = static_cast<size_t>(-1);
+    size_t renderedTradeCount = static_cast<size_t>(-1);
+    size_t renderedLogCount = static_cast<size_t>(-1);
 
     ~AppState()
     {
@@ -135,25 +138,48 @@ void refreshLists(HWND window)
     }
     g_app->snapshot = g_app->engine.snapshot();
 
-    SendMessageW(g_app->hOrders, LB_RESETCONTENT, 0, 0);
-    for (auto it = g_app->snapshot.orders.rbegin(); it != g_app->snapshot.orders.rend(); ++it) {
-        std::wstringstream ss;
-        ss << L"#" << it->id << L" " << (it->isBuy ? L"BUY " : L"SELL ")
-           << it->volume << L" @ " << money(it->price);
-        addListLine(g_app->hOrders, ss.str());
+    if (g_app->renderedOrderCount != g_app->snapshot.orders.size()) {
+        SendMessageW(g_app->hOrders, WM_SETREDRAW, FALSE, 0);
+        SendMessageW(g_app->hOrders, LB_RESETCONTENT, 0, 0);
+        for (auto it = g_app->snapshot.orders.rbegin(); it != g_app->snapshot.orders.rend(); ++it) {
+            std::wstringstream ss;
+            ss << L"#" << it->order.id << L" " << (it->order.isBuy ? L"BUY " : L"SELL ")
+               << it->order.volume << L" @ " << money(it->order.price)
+               << L" | " << it->status;
+            if (it->filledVolume > 0) {
+                ss << L" " << it->filledVolume << L" @ " << money(it->averageFillPrice);
+            }
+            addListLine(g_app->hOrders, ss.str());
+        }
+        SendMessageW(g_app->hOrders, WM_SETREDRAW, TRUE, 0);
+        InvalidateRect(g_app->hOrders, nullptr, TRUE);
+        g_app->renderedOrderCount = g_app->snapshot.orders.size();
     }
 
-    SendMessageW(g_app->hTrades, LB_RESETCONTENT, 0, 0);
-    for (auto it = g_app->snapshot.trades.rbegin(); it != g_app->snapshot.trades.rend(); ++it) {
-        std::wstringstream ss;
-        ss << L"#" << it->id << L" " << (it->isBuy ? L"BUY " : L"SELL ")
-           << it->volume << L" @ " << money(it->price);
-        addListLine(g_app->hTrades, ss.str());
+    if (g_app->renderedTradeCount != g_app->snapshot.trades.size()) {
+        SendMessageW(g_app->hTrades, WM_SETREDRAW, FALSE, 0);
+        SendMessageW(g_app->hTrades, LB_RESETCONTENT, 0, 0);
+        for (auto it = g_app->snapshot.trades.rbegin(); it != g_app->snapshot.trades.rend(); ++it) {
+            std::wstringstream ss;
+            ss << L"#" << it->id << L" order #" << it->orderId << L" "
+               << (it->isBuy ? L"BUY " : L"SELL ")
+               << it->volume << L" @ " << money(it->price);
+            addListLine(g_app->hTrades, ss.str());
+        }
+        SendMessageW(g_app->hTrades, WM_SETREDRAW, TRUE, 0);
+        InvalidateRect(g_app->hTrades, nullptr, TRUE);
+        g_app->renderedTradeCount = g_app->snapshot.trades.size();
     }
 
-    SendMessageW(g_app->hLogs, LB_RESETCONTENT, 0, 0);
-    for (auto it = g_app->snapshot.logs.rbegin(); it != g_app->snapshot.logs.rend(); ++it) {
-        addListLine(g_app->hLogs, *it);
+    if (g_app->renderedLogCount != g_app->snapshot.logs.size()) {
+        SendMessageW(g_app->hLogs, WM_SETREDRAW, FALSE, 0);
+        SendMessageW(g_app->hLogs, LB_RESETCONTENT, 0, 0);
+        for (auto it = g_app->snapshot.logs.rbegin(); it != g_app->snapshot.logs.rend(); ++it) {
+            addListLine(g_app->hLogs, *it);
+        }
+        SendMessageW(g_app->hLogs, WM_SETREDRAW, TRUE, 0);
+        InvalidateRect(g_app->hLogs, nullptr, TRUE);
+        g_app->renderedLogCount = g_app->snapshot.logs.size();
     }
 
     std::wstringstream status;
@@ -163,7 +189,7 @@ void refreshLists(HWND window)
            << L" | Equity " << money(g_app->snapshot.account.equity)
            << L" | MaxDD " << percent(g_app->snapshot.account.maxDrawdown);
     SetWindowTextW(g_app->hStatus, status.str().c_str());
-    InvalidateRect(window, nullptr, FALSE);
+    InvalidateRect(window, &g_app->rects.chart, FALSE);
 }
 
 void startBacktest(HWND window)
@@ -232,9 +258,7 @@ void createControls(HWND window)
     g_app->hReset = CreateWindowW(L"BUTTON", L"Reset", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, window, menuId(IDC_BTN_RESET), g_instance, nullptr);
     g_app->hOptimize = CreateWindowW(L"BUTTON", L"Optimize", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, window, menuId(IDC_BTN_OPTIMIZE), g_instance, nullptr);
     g_app->hStrategy = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 0, 0, 0, 0, window, menuId(IDC_COMBO_STRATEGY), g_instance, nullptr);
-    SendMessageW(g_app->hStrategy, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Moving Average"));
-    SendMessageW(g_app->hStrategy, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Momentum Breakout"));
-    SendMessageW(g_app->hStrategy, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Grid Trading"));
+    SendMessageW(g_app->hStrategy, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Moving Average Crossover"));
     SendMessageW(g_app->hStrategy, CB_SETCURSEL, 0, 0);
 
     g_app->hCash = CreateWindowW(L"EDIT", L"100000", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, 0, 0, 0, 0, window, menuId(IDC_EDIT_CASH), g_instance, nullptr);
@@ -473,10 +497,10 @@ BOOL InitMainWindow(HINSTANCE instance, int showCommand)
     HWND window = CreateWindowW(
         kWindowClass,
         L"Low-Latency Quant Backtest and Matching Simulator",
-        WS_OVERLAPPEDWINDOW,
+        WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
         CW_USEDEFAULT,
         0,
-        1120,
+        1180,
         760,
         nullptr,
         nullptr,
@@ -500,6 +524,8 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
         g_app->engine.reset();
         refreshLists(window);
         break;
+    case WM_ERASEBKGND:
+        return 1;
     case WM_SIZE:
         layout(window);
         InvalidateRect(window, nullptr, TRUE);
@@ -615,8 +641,17 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
     {
         PAINTSTRUCT ps;
         HDC dc = BeginPaint(window, &ps);
-        drawDashboard(window, dc);
-        drawLabels(dc);
+        RECT client{};
+        GetClientRect(window, &client);
+        HDC memDc = CreateCompatibleDC(dc);
+        HBITMAP bitmap = CreateCompatibleBitmap(dc, client.right - client.left, client.bottom - client.top);
+        HGDIOBJ oldBitmap = SelectObject(memDc, bitmap);
+        drawDashboard(window, memDc);
+        drawLabels(memDc);
+        BitBlt(dc, 0, 0, client.right - client.left, client.bottom - client.top, memDc, 0, 0, SRCCOPY);
+        SelectObject(memDc, oldBitmap);
+        DeleteObject(bitmap);
+        DeleteDC(memDc);
         EndPaint(window, &ps);
         break;
     }
