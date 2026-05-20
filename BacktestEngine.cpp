@@ -33,6 +33,11 @@ std::wstring threadIdText()
     return ss.str();
 }
 
+constexpr double kCommissionRate = 0.0003;
+constexpr double kMinCommission = 5.0;
+constexpr double kStampDutyRate = 0.0005;
+constexpr double kTransferFeeRate = 0.00001;
+
 } // namespace
 
 SimulationEngine::~SimulationEngine()
@@ -40,12 +45,15 @@ SimulationEngine::~SimulationEngine()
     stop();
 }
 
-void SimulationEngine::configure(double initialCash, int shortWindow, int longWindow)
+void SimulationEngine::configure(double initialCash, int shortWindow, int longWindow, StrategyKind strategyKind, const std::wstring& dataPath, const std::string& symbol)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     initialCash_ = initialCash;
     shortWindow_ = std::max(1, shortWindow);
     longWindow_ = std::max(shortWindow_ + 1, longWindow);
+    strategyKind_ = strategyKind;
+    dataPath_ = dataPath.empty() ? L"data\\akshare_export_TEST_SH.csv" : dataPath;
+    symbol_ = symbol.empty() ? "TEST.SH" : symbol;
 }
 
 void SimulationEngine::setReplayDelay(int milliseconds)
@@ -123,7 +131,7 @@ void SimulationEngine::reset()
 UiSnapshot SimulationEngine::snapshot() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    return UiSnapshot{ bars_, prices_, equities_, orders_, trades_, logs_, account_, initialCash_, concurrency_, dataStore_.snapshot(), lastPrice_, running_, paused_ };
+    return UiSnapshot{ bars_, prices_, equities_, orders_, trades_, logs_, account_, initialCash_, totalFees_, concurrency_, dataStore_.snapshot(), lastPrice_, running_, paused_ };
 }
 
 void SimulationEngine::optimize(HWND notifyWindow)
@@ -180,6 +188,13 @@ SimulationEngine::FastBacktestResult SimulationEngine::runFastBacktest(int short
     double price = 100.0;
     std::mt19937 rng(shortW * 1000 + longW);
     std::normal_distribution<double> noise(0.0004, 0.008);
+    const auto feeOf = [](const Trade& trade) {
+        const double notional = trade.price * trade.volume;
+        const double commission = std::max(kMinCommission, notional * kCommissionRate);
+        const double transfer = notional * kTransferFeeRate;
+        const double stampDuty = trade.isBuy ? 0.0 : notional * kStampDutyRate;
+        return commission + transfer + stampDuty;
+    };
 
     for (long long t = 1; t <= 500; ++t) {
         price = std::max(5.0, price * (1.0 + noise(rng)));
@@ -193,14 +208,15 @@ SimulationEngine::FastBacktestResult SimulationEngine::runFastBacktest(int short
         data.volume = 100 + static_cast<int>(rng() % 900);
         data.timestamp = t;
 
-        auto order = strategy.onMarketData(data, account.position);
+        auto order = strategy.onMarketData(data, account);
         if (order && risk.check(*order, account, price)) {
             for (const auto& trade : book.addOrder(*order)) {
+                const double fee = feeOf(trade);
                 if (trade.isBuy) {
-                    account.cash -= trade.price * trade.volume;
+                    account.cash -= trade.price * trade.volume + fee;
                     account.position += trade.volume;
                 } else {
-                    account.cash += trade.price * trade.volume;
+                    account.cash += trade.price * trade.volume - fee;
                     account.position -= trade.volume;
                 }
             }
@@ -218,9 +234,20 @@ void SimulationEngine::marketLoop()
         concurrency_.marketActive = true;
     }
     addLog(L"Market thread started: generates synthetic OHLC bars.");
-    dataStore_.loadOrCreate(L"data\\akshare_export_TEST_SH.csv");
+    std::wstring dataPath;
+    std::string symbol;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        dataPath = dataPath_;
+        symbol = symbol_;
+    }
+    dataStore_.loadOrCreate(dataPath, symbol);
     auto replayBars = dataStore_.allBars();
-    addLog(L"Local data store loaded: data/akshare_export_TEST_SH.csv, cached in memory for replay and user queries.");
+    {
+        std::wstringstream ss;
+        ss << L"Local data store loaded: " << dataPath << L", cached in memory for replay and user queries.";
+        addLog(ss.str());
+    }
 
     std::mt19937 rng(std::random_device{}());
     std::normal_distribution<double> noise(0.0002, 0.006);
@@ -242,12 +269,14 @@ void SimulationEngine::marketLoop()
             generated.close = close;
             generated.price = close;
             generated.volume = 100 + static_cast<int>(rng() % 900);
+            generated.symbol = symbol;
             replayBars.push_back(generated);
             price = close;
         }
 
         MarketBar event = replayBars[static_cast<size_t>((timestamp - 1) % replayBars.size())];
         event.timestamp = timestamp;
+        event.symbol = symbol;
         price = event.close;
 
         {
@@ -287,15 +316,51 @@ void SimulationEngine::strategyLoop()
     }
     addLog(L"Strategy thread started: consumes market queue and emits orders.");
 
-    MovingAverageStrategy strategy(shortWindow_, longWindow_);
+    StrategyKind strategyKind;
+    int shortWindow;
+    int longWindow;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        strategyKind = strategyKind_;
+        shortWindow = shortWindow_;
+        longWindow = longWindow_;
+    }
+
+    MovingAverageStrategy maStrategy(shortWindow, longWindow);
+    BreakoutStrategy breakoutStrategy(longWindow);
+    MeanReversionStrategy meanReversionStrategy(longWindow);
+    MomentumStrategy momentumStrategy(longWindow);
+    RsiReversalStrategy rsiReversalStrategy(shortWindow);
+    BollingerBandStrategy bollingerBandStrategy(longWindow);
     MarketBar data;
     while (marketQueue_.pop(data)) {
-        const int position = [this] {
+        const Account account = [this] {
             std::lock_guard<std::mutex> lock(mutex_);
-            return account_.position;
+            return account_;
         }();
 
-        auto order = strategy.onMarketData(data, position);
+        std::optional<Order> order;
+        switch (strategyKind) {
+        case StrategyKind::Breakout:
+            order = breakoutStrategy.onMarketData(data, account);
+            break;
+        case StrategyKind::MeanReversion:
+            order = meanReversionStrategy.onMarketData(data, account);
+            break;
+        case StrategyKind::Momentum:
+            order = momentumStrategy.onMarketData(data, account);
+            break;
+        case StrategyKind::RsiReversal:
+            order = rsiReversalStrategy.onMarketData(data, account);
+            break;
+        case StrategyKind::BollingerBand:
+            order = bollingerBandStrategy.onMarketData(data, account);
+            break;
+        case StrategyKind::MovingAverage:
+        default:
+            order = maStrategy.onMarketData(data, account);
+            break;
+        }
         if (order) {
             orderQueue_.push(*order);
             {
@@ -450,20 +515,26 @@ void SimulationEngine::userLoadLoop()
 void SimulationEngine::recordOrder(const Order& order, const std::wstring& status, int filledVolume, double averageFillPrice)
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    orders_.push_back(OrderRecord{ order, status, filledVolume, averageFillPrice });
+    const double notional = averageFillPrice * filledVolume;
+    const double fee = filledVolume > 0
+        ? std::max(kMinCommission, notional * kCommissionRate) + notional * kTransferFeeRate + (order.isBuy ? 0.0 : notional * kStampDutyRate)
+        : 0.0;
+    orders_.push_back(OrderRecord{ order, status, filledVolume, averageFillPrice, fee });
     trim(orders_, 80);
 }
 
 void SimulationEngine::applyTrade(const Trade& trade)
 {
     std::lock_guard<std::mutex> lock(mutex_);
+    const double fee = transactionFee(trade);
     if (trade.isBuy) {
-        account_.cash -= trade.price * trade.volume;
+        account_.cash -= trade.price * trade.volume + fee;
         account_.position += trade.volume;
     } else {
-        account_.cash += trade.price * trade.volume;
+        account_.cash += trade.price * trade.volume - fee;
         account_.position -= trade.volume;
     }
+    totalFees_ += fee;
     account_.markToMarket(lastPrice_);
     equities_.push_back(account_.equity);
     trim(equities_, 360);
@@ -473,9 +544,18 @@ void SimulationEngine::applyTrade(const Trade& trade)
     std::wstringstream ss;
     ss << L"Trade #" << trade.id << L" order #" << trade.orderId << L" "
        << (trade.isBuy ? L"BUY" : L"SELL") << L" " << trade.volume
-       << L" @ " << money(trade.price);
+       << L" @ " << money(trade.price) << L" fee " << money(fee);
     logs_.push_back(ss.str());
     trim(logs_, 120);
+}
+
+double SimulationEngine::transactionFee(const Trade& trade) const
+{
+    const double notional = trade.price * trade.volume;
+    const double commission = std::max(kMinCommission, notional * kCommissionRate);
+    const double transfer = notional * kTransferFeeRate;
+    const double stampDuty = trade.isBuy ? 0.0 : notional * kStampDutyRate;
+    return commission + transfer + stampDuty;
 }
 
 void SimulationEngine::addLog(const std::wstring& text)
@@ -491,6 +571,7 @@ void SimulationEngine::addLog(const std::wstring& text)
 void SimulationEngine::resetLocked()
 {
     account_.reset(initialCash_);
+    totalFees_ = 0.0;
     bars_.clear();
     prices_.clear();
     equities_.clear();

@@ -19,6 +19,7 @@ struct OrderRecord {
     std::wstring status;
     int filledVolume = 0;
     double averageFillPrice = 0.0;
+    double fee = 0.0;
 };
 
 struct ConcurrencySnapshot {
@@ -59,6 +60,7 @@ struct UiSnapshot {
     std::vector<std::wstring> logs;
     Account account;
     double initialCash = 100000.0;
+    double totalFees = 0.0;
     ConcurrencySnapshot concurrency;
     DataStoreSnapshot dataStore;
     double lastPrice = 100.0;
@@ -70,7 +72,7 @@ class SimulationEngine {
 public:
     ~SimulationEngine();
 
-    void configure(double initialCash, int shortWindow, int longWindow);
+    void configure(double initialCash, int shortWindow, int longWindow, StrategyKind strategyKind, const std::wstring& dataPath, const std::string& symbol);
     void setReplayDelay(int milliseconds);
     void start(HWND notifyWindow);
     void pauseOrResume();
@@ -95,6 +97,7 @@ private:
     void userLoadLoop();
     void recordOrder(const Order& order, const std::wstring& status, int filledVolume, double averageFillPrice);
     void applyTrade(const Trade& trade);
+    double transactionFee(const Trade& trade) const;
     void addLog(const std::wstring& text);
     void resetLocked();
     void notify() const;
@@ -119,8 +122,12 @@ private:
     std::atomic<bool> paused_ = false;
     HWND notifyWindow_ = nullptr;
     double initialCash_ = 100000.0;
+    double totalFees_ = 0.0;
     int shortWindow_ = 5;
     int longWindow_ = 30;
+    StrategyKind strategyKind_ = StrategyKind::MovingAverage;
+    std::wstring dataPath_ = L"data\\akshare_export_TEST_SH.csv";
+    std::string symbol_ = "TEST.SH";
     std::atomic<int> replayDelayMs_ = 90;
     double lastPrice_ = 100.0;
     mutable ConcurrencySnapshot concurrency_;

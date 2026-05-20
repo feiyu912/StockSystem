@@ -88,6 +88,15 @@ struct Trade {
     long long timestamp = 0;
 };
 
+enum class StrategyKind {
+    MovingAverage = 0,
+    Breakout = 1,
+    MeanReversion = 2,
+    Momentum = 3,
+    RsiReversal = 4,
+    BollingerBand = 5,
+};
+
 struct Account {
     double cash = 100000.0;
     int position = 0;
@@ -104,7 +113,7 @@ public:
     bool check(const Order& order, const Account& account, double lastPrice) const;
 
 private:
-    int maxOrderVolume_ = 1000;
+    int maxOrderVolume_ = 100000;
     double maxPriceDeviation_ = 0.08;
 };
 
@@ -126,14 +135,90 @@ private:
 class MovingAverageStrategy {
 public:
     MovingAverageStrategy(int shortWindow, int longWindow);
-    std::optional<Order> onMarketData(const MarketBar& data, int position);
+    std::optional<Order> onMarketData(const MarketBar& data, const Account& account);
 
 private:
     double average(int window) const;
+    static int buyVolume(double cash, double price);
 
     int shortWindow_ = 5;
     int longWindow_ = 20;
     int nextOrderId_ = 1;
     bool lastBullish_ = false;
+    long long lastSignalTimestamp_ = 0;
+    std::deque<double> prices_;
+};
+
+class BreakoutStrategy {
+public:
+    explicit BreakoutStrategy(int lookback);
+    std::optional<Order> onMarketData(const MarketBar& data, const Account& account);
+
+private:
+    static int buyVolume(double cash, double price);
+
+    int lookback_ = 20;
+    int nextOrderId_ = 1;
+    long long lastSignalTimestamp_ = 0;
+    std::deque<MarketBar> bars_;
+};
+
+class MeanReversionStrategy {
+public:
+    explicit MeanReversionStrategy(int window);
+    std::optional<Order> onMarketData(const MarketBar& data, const Account& account);
+
+private:
+    double average() const;
+    static int buyVolume(double cash, double price);
+
+    int window_ = 20;
+    int nextOrderId_ = 1;
+    long long lastSignalTimestamp_ = 0;
+    std::deque<double> prices_;
+};
+
+class MomentumStrategy {
+public:
+    explicit MomentumStrategy(int lookback);
+    std::optional<Order> onMarketData(const MarketBar& data, const Account& account);
+
+private:
+    static int buyVolume(double cash, double price);
+
+    int lookback_ = 20;
+    int nextOrderId_ = 1;
+    long long lastSignalTimestamp_ = 0;
+    std::deque<double> prices_;
+};
+
+class RsiReversalStrategy {
+public:
+    explicit RsiReversalStrategy(int window);
+    std::optional<Order> onMarketData(const MarketBar& data, const Account& account);
+
+private:
+    double rsi() const;
+    static int buyVolume(double cash, double price);
+
+    int window_ = 14;
+    int nextOrderId_ = 1;
+    long long lastSignalTimestamp_ = 0;
+    std::deque<double> prices_;
+};
+
+class BollingerBandStrategy {
+public:
+    explicit BollingerBandStrategy(int window);
+    std::optional<Order> onMarketData(const MarketBar& data, const Account& account);
+
+private:
+    double average() const;
+    double stddev(double mean) const;
+    static int buyVolume(double cash, double price);
+
+    int window_ = 20;
+    int nextOrderId_ = 1;
+    long long lastSignalTimestamp_ = 0;
     std::deque<double> prices_;
 };

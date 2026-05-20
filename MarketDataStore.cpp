@@ -8,18 +8,18 @@
 #include <random>
 #include <sstream>
 
-bool MarketDataStore::loadOrCreate(const std::wstring& path)
+bool MarketDataStore::loadOrCreate(const std::wstring& path, const std::string& symbol)
 {
     namespace fs = std::filesystem;
     std::vector<MarketBar> loaded;
     if (!fs::exists(path)) {
-        loaded = generateSampleBars(1200);
+        loaded = generateSampleBars(1200, symbol);
         writeCsv(path, loaded);
     }
 
-    loaded = readCsv(path);
+    loaded = readCsv(path, symbol);
     if (loaded.empty()) {
-        loaded = generateSampleBars(1200);
+        loaded = generateSampleBars(1200, symbol);
         writeCsv(path, loaded);
     }
 
@@ -67,7 +67,7 @@ DataStoreSnapshot MarketDataStore::snapshot() const
     return stats_;
 }
 
-std::vector<MarketBar> MarketDataStore::generateSampleBars(size_t count)
+std::vector<MarketBar> MarketDataStore::generateSampleBars(size_t count, const std::string& symbol)
 {
     std::vector<MarketBar> bars;
     bars.reserve(count);
@@ -79,7 +79,7 @@ std::vector<MarketBar> MarketDataStore::generateSampleBars(size_t count)
         const double close = std::max(5.0, open * (1.0 + noise(rng)));
         const double shadow = std::abs(close - open) + 0.12 + static_cast<double>(rng() % 35) / 100.0;
         MarketBar bar;
-        bar.symbol = "TEST.SH";
+        bar.symbol = symbol;
         bar.open = open;
         bar.close = close;
         bar.high = std::max(open, close) + shadow * 0.55;
@@ -101,9 +101,10 @@ bool MarketDataStore::writeCsv(const std::wstring& path, const std::vector<Marke
     if (!out) {
         return false;
     }
-    out << "timestamp,open,high,low,close,volume\n";
+    out << "symbol,timestamp,open,high,low,close,volume\n";
     for (const auto& bar : bars) {
-        out << bar.timestamp << ','
+        out << bar.symbol << ','
+            << bar.timestamp << ','
             << bar.open << ','
             << bar.high << ','
             << bar.low << ','
@@ -113,7 +114,7 @@ bool MarketDataStore::writeCsv(const std::wstring& path, const std::vector<Marke
     return true;
 }
 
-std::vector<MarketBar> MarketDataStore::readCsv(const std::wstring& path)
+std::vector<MarketBar> MarketDataStore::readCsv(const std::wstring& path, const std::string& fallbackSymbol)
 {
     namespace fs = std::filesystem;
     std::ifstream in{ fs::path(path) };
@@ -124,6 +125,7 @@ std::vector<MarketBar> MarketDataStore::readCsv(const std::wstring& path)
 
     std::string line;
     std::getline(in, line);
+    const bool hasSymbol = line.find("symbol") != std::string::npos;
     while (std::getline(in, line)) {
         if (line.empty()) {
             continue;
@@ -131,7 +133,13 @@ std::vector<MarketBar> MarketDataStore::readCsv(const std::wstring& path)
         std::stringstream ss(line);
         std::string cell;
         MarketBar bar;
-        bar.symbol = "TEST.SH";
+        bar.symbol = fallbackSymbol;
+        if (hasSymbol) {
+            std::getline(ss, cell, ',');
+            if (!cell.empty()) {
+                bar.symbol = cell;
+            }
+        }
         std::getline(ss, cell, ',');
         bar.timestamp = std::stoll(cell);
         std::getline(ss, cell, ',');

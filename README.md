@@ -20,9 +20,9 @@ Pure Win32 C++ stock trading and quantitative backtest simulator.
 - Parallel calculation: moving averages are computed with C++17 `std::execution::par`.
 - Concurrency monitor: the right-side panel shows worker thread states, thread ids, queue activity counters, async optimization tasks, and UI `PostMessage` counts.
 - Multi-user load monitor: a background user-load thread launches parallel `std::async` simulated user requests and displays active users, request counts, per-user equity, and latency.
-- Local data store: market replay and simulated user requests query `data/akshare_export_TEST_SH.csv`, a local AkShare-style CSV cache generated on first run when no imported file exists.
+- Local data store: market replay and simulated user requests query the selected AkShare-style CSV under `data/`; a sample `data/akshare_export_TEST_SH.csv` is generated when no imported file exists.
 - A sample `data/akshare_export_TEST_SH.csv` is included so the project demonstrates local data loading immediately.
-- To use real exported data, replace `data/akshare_export_TEST_SH.csv` with AkShare output using columns `timestamp,open,high,low,close,volume`; no Python or network access is needed at runtime.
+- To use real exported data, run `python scripts/fetch_stock_data.py 600519 000001` or provide CSV files using columns `symbol,timestamp,open,high,low,close,volume`; no Python or network access is needed at runtime.
 - No Qt dependency.
 
 ## Build
@@ -53,7 +53,7 @@ The project builds as a normal Windows subsystem executable and does not require
 - Market data is synthetic. `SimulationEngine::marketLoop` generates random OHLC bars in memory for the demo, so the app does not need network access or a data vendor.
 - `Orders` shows strategy orders after risk and matching, including status such as `Filled`, `Part filled`, `Open limit`, or `Rejected by risk`.
 - `Trades` shows actual matched executions. A trade changes cash, position, equity, and drawdown.
-- `Strategy` currently uses the moving-average crossover implementation. `Short MA` and `Long MA` control the two moving average windows used by that strategy.
+- `Strategy` supports moving-average crossover, breakout channel, and mean reversion. `Short MA` and `Long MA` control the moving-average windows and the lookback used by the other strategies.
 - The chart can be viewed as `1m`, `5m`, `15m`, `30m`, `60m`, `Day`, or `Week` by aggregating the synthetic bars in memory.
 - Replay speed can be changed while the simulation is running.
 - The lower indicator panel supports `Volume`, `RSI`, `KDJ`, and `MACD`; the main chart shows MA5, MA10, MA20, and MA60.
