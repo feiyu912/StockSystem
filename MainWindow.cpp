@@ -287,15 +287,17 @@ void layout(HWND window)
     MoveWindow(g_app->hIndicator, 468, g_app->rects.tabs.top + 6, 122, 200, TRUE);
 
     const int sx = g_app->rects.side.left;
-    const int sy = g_app->rects.side.bottom - 250;
-    MoveWindow(g_app->hStrategy, sx + 14, sy + 26, sideWidth - 30, 26, TRUE);
-    MoveWindow(g_app->hCash, sx + 14, sy + 84, sideWidth - 30, 24, TRUE);
-    MoveWindow(g_app->hShort, sx + 14, sy + 142, 110, 24, TRUE);
-    MoveWindow(g_app->hLong, sx + 142, sy + 142, 110, 24, TRUE);
-    MoveWindow(g_app->hStart, sx + 14, sy + 188, 64, 24, TRUE);
-    MoveWindow(g_app->hPause, sx + 84, sy + 188, 64, 24, TRUE);
-    MoveWindow(g_app->hReset, sx + 154, sy + 188, 64, 24, TRUE);
-    MoveWindow(g_app->hOptimize, sx + 224, sy + 188, 64, 24, TRUE);
+    const int sy = g_app->rects.side.bottom - 276;
+    const int fieldX = sx + 18;
+    const int fieldWidth = sideWidth - 36;
+    MoveWindow(g_app->hStrategy, fieldX, sy + 48, fieldWidth, 26, TRUE);
+    MoveWindow(g_app->hCash, fieldX, sy + 112, fieldWidth, 24, TRUE);
+    MoveWindow(g_app->hShort, fieldX, sy + 176, 112, 24, TRUE);
+    MoveWindow(g_app->hLong, fieldX + 136, sy + 176, 112, 24, TRUE);
+    MoveWindow(g_app->hStart, fieldX, sy + 232, 58, 24, TRUE);
+    MoveWindow(g_app->hPause, fieldX + 68, sy + 232, 58, 24, TRUE);
+    MoveWindow(g_app->hReset, fieldX + 136, sy + 232, 58, 24, TRUE);
+    MoveWindow(g_app->hOptimize, fieldX + 204, sy + 232, 64, 24, TRUE);
 
     const int third = (g_app->rects.bottom.right - g_app->rects.bottom.left - 20) / 3;
     MoveWindow(g_app->hOrders, g_app->rects.bottom.left, g_app->rects.bottom.top + 24, third, bottomHeight - 60, TRUE);
@@ -786,25 +788,35 @@ void drawSidePanel(HDC dc)
     text(dc, side.left + 22, y, L"Net Flow", CLR_TEXT);
     text(dc, side.left + 190, y, L"158.8", CLR_RED);
 
+    const int sy = side.bottom - 276;
+    const int fieldX = side.left + 18;
+    RECT settingsBg{ side.left + 4, sy - 8, side.right - 4, side.bottom - 8 };
+    HBRUSH settingsBrush = CreateSolidBrush(RGB(246, 246, 246));
+    FillRect(dc, &settingsBg, settingsBrush);
+    DeleteObject(settingsBrush);
+
     y += 54;
     text(dc, side.left + 14, y, L"Realtime Ticks", CLR_TEXT);
     y += 30;
+    const int maxTickBottom = sy - 18;
+    const int maxRows = std::max(0, (maxTickBottom - y) / 24);
     int shown = 0;
-    for (auto it = g_app->snapshot.trades.rbegin(); it != g_app->snapshot.trades.rend() && shown < 9; ++it, ++shown) {
+    for (auto it = g_app->snapshot.trades.rbegin(); it != g_app->snapshot.trades.rend() && shown < maxRows; ++it, ++shown) {
         std::wstringstream ss;
         ss << L"T+" << it->timestamp << L"  " << money(it->price) << L"  " << it->volume;
         text(dc, side.left + 22, y + shown * 24, ss.str(), it->isBuy ? CLR_RED : CLR_GREEN);
     }
     if (shown == 0) {
         text(dc, side.left + 22, y, L"No matched trades yet.", CLR_MUTED);
+    } else if (g_app->snapshot.trades.size() > static_cast<size_t>(shown)) {
+        text(dc, side.left + 22, maxTickBottom - 18, L"...", CLR_MUTED);
     }
 
-    const int sy = side.bottom - 264;
-    text(dc, side.left + 14, sy - 28, L"Backtest Settings", CLR_TEXT);
-    text(dc, side.left + 14, sy + 4, L"Strategy", CLR_MUTED);
-    text(dc, side.left + 14, sy + 62, L"Initial Cash", CLR_MUTED);
-    text(dc, side.left + 14, sy + 120, L"Short MA", CLR_MUTED);
-    text(dc, side.left + 142, sy + 120, L"Long MA", CLR_MUTED);
+    text(dc, fieldX, sy + 8, L"Backtest Settings", CLR_TEXT);
+    text(dc, fieldX, sy + 30, L"Strategy", CLR_MUTED);
+    text(dc, fieldX, sy + 94, L"Initial Cash", CLR_MUTED);
+    text(dc, fieldX, sy + 158, L"Short MA", CLR_MUTED);
+    text(dc, fieldX + 136, sy + 158, L"Long MA", CLR_MUTED);
 }
 
 void drawDashboard(HWND window, HDC dc)
