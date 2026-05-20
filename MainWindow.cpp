@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <commctrl.h>
 #include <cstdlib>
+#include <cmath>
 #include <iomanip>
 #include <memory>
 #include <sstream>
@@ -321,11 +322,19 @@ void drawLineWithScale(HDC dc, const RECT& rect, const std::vector<double>& valu
             rect.bottom - static_cast<LONG>(yRatio * (rect.bottom - rect.top))
         };
     };
-    POINT first = pointAt(0);
-    MoveToEx(dc, first.x, first.y, nullptr);
-    for (size_t i = 1; i < values.size(); ++i) {
+    bool hasPrevious = false;
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (!std::isfinite(values[i])) {
+            hasPrevious = false;
+            continue;
+        }
         POINT p = pointAt(i);
-        LineTo(dc, p.x, p.y);
+        if (!hasPrevious) {
+            MoveToEx(dc, p.x, p.y, nullptr);
+            hasPrevious = true;
+        } else {
+            LineTo(dc, p.x, p.y);
+        }
     }
     SelectObject(dc, oldPen);
     DeleteObject(pen);

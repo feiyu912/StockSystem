@@ -3,11 +3,12 @@
 #include <algorithm>
 #include <cstddef>
 #include <execution>
+#include <limits>
 #include <numeric>
 
 std::vector<double> movingAverageParallel(const std::vector<double>& values, size_t window)
 {
-    std::vector<double> ma(values.size(), 0.0);
+    std::vector<double> ma(values.size(), std::numeric_limits<double>::quiet_NaN());
     if (values.empty() || window == 0) {
         return ma;
     }
@@ -18,7 +19,6 @@ std::vector<double> movingAverageParallel(const std::vector<double>& values, siz
     // Parallel-computing requirement: C++17 parallel STL computes MA values in batches.
     std::for_each(std::execution::par, indexes.begin(), indexes.end(), [&](size_t i) {
         if (i + 1 < window) {
-            ma[i] = values[i];
             return;
         }
         const auto first = values.begin() + static_cast<std::ptrdiff_t>(i + 1 - window);
