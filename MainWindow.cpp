@@ -720,7 +720,10 @@ void drawQuoteBar(HDC dc)
     const auto& s = g_app->snapshot;
     const double change = s.bars.size() >= 2 ? s.lastPrice - s.bars[s.bars.size() - 2].close : 0.0;
     const double pct = s.bars.size() >= 2 ? change / std::max(1.0, s.bars[s.bars.size() - 2].close) : 0.0;
+    const double pnl = s.account.equity - s.initialCash;
+    const double totalReturn = pnl / std::max(1.0, s.initialCash);
     const COLORREF priceColor = change >= 0.0 ? CLR_RED : CLR_GREEN;
+    const COLORREF pnlColor = pnl >= 0.0 ? CLR_RED : CLR_GREEN;
 
     std::wstringstream title;
     title << L"TEST.SH 000001   " << money(s.lastPrice) << (change >= 0.0 ? L" UP" : L" DOWN");
@@ -739,12 +742,16 @@ void drawQuoteBar(HDC dc)
     rows.push_back(L"Low: " + (s.bars.empty() ? L"--" : money(s.bars.back().low)));
     rows.push_back(L"Equity: " + money(s.account.equity));
     rows.push_back(L"Cash: " + money(s.account.cash));
+    rows.push_back(L"PnL: " + money(pnl));
+    rows.push_back(L"Return: " + percent(totalReturn));
     rows.push_back(L"MaxDD: " + percent(s.account.maxDrawdown));
     rows.push_back(L"Trades: " + std::to_wstring(s.trades.size()));
     for (size_t i = 0; i < rows.size(); ++i) {
         const int col = static_cast<int>(i % 6);
         const int row = static_cast<int>(i / 6);
-        text(dc, x0 + col * 140, y0 + row * 26, rows[i], i == 2 ? priceColor : CLR_TEXT);
+        const bool isChange = i == 2;
+        const bool isPnl = i == 8 || i == 9;
+        text(dc, x0 + col * 140, y0 + row * 22, rows[i], isChange ? priceColor : (isPnl ? pnlColor : CLR_TEXT));
     }
 }
 
@@ -832,6 +839,21 @@ void drawSidePanel(HDC dc)
     line.str(L"");
     line.clear();
     line << L"Range queries " << ds.rangeQueries << L"  " << std::fixed << std::setprecision(3) << ds.lastQueryMs << L"ms";
+    text(dc, side.left + 22, y, line.str(), CLR_MUTED);
+
+    y += 28;
+    text(dc, side.left + 14, y, L"Backtest Return", CLR_TEXT);
+    y += 22;
+    const double pnlValue = g_app->snapshot.account.equity - g_app->snapshot.initialCash;
+    const double returnValue = pnlValue / std::max(1.0, g_app->snapshot.initialCash);
+    line.str(L"");
+    line.clear();
+    line << L"PnL " << money(pnlValue) << L"  Return " << percent(returnValue);
+    text(dc, side.left + 22, y, line.str(), pnlValue >= 0.0 ? CLR_RED : CLR_GREEN);
+    y += 20;
+    line.str(L"");
+    line.clear();
+    line << L"Equity " << money(g_app->snapshot.account.equity) << L"  MaxDD " << percent(g_app->snapshot.account.maxDrawdown);
     text(dc, side.left + 22, y, line.str(), CLR_MUTED);
 
     y += 28;

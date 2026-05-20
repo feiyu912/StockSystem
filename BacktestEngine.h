@@ -58,6 +58,7 @@ struct UiSnapshot {
     std::vector<Trade> trades;
     std::vector<std::wstring> logs;
     Account account;
+    double initialCash = 100000.0;
     ConcurrencySnapshot concurrency;
     DataStoreSnapshot dataStore;
     double lastPrice = 100.0;

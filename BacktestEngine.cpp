@@ -123,7 +123,7 @@ void SimulationEngine::reset()
 UiSnapshot SimulationEngine::snapshot() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    return UiSnapshot{ bars_, prices_, equities_, orders_, trades_, logs_, account_, concurrency_, dataStore_.snapshot(), lastPrice_, running_, paused_ };
+    return UiSnapshot{ bars_, prices_, equities_, orders_, trades_, logs_, account_, initialCash_, concurrency_, dataStore_.snapshot(), lastPrice_, running_, paused_ };
 }
 
 void SimulationEngine::optimize(HWND notifyWindow)
