@@ -69,6 +69,7 @@ void SimulationEngine::start(HWND notifyWindow)
     marketThread_ = std::thread(&SimulationEngine::marketLoop, this);
     strategyThread_ = std::thread(&SimulationEngine::strategyLoop, this);
     matchingThread_ = std::thread(&SimulationEngine::matchingLoop, this);
+    userLoadThread_ = std::thread(&SimulationEngine::userLoadLoop, this);
 }
 
 void SimulationEngine::pauseOrResume()
@@ -82,7 +83,7 @@ void SimulationEngine::stop()
 {
     const bool wasRunning = running_.exchange(false);
     if (!wasRunning && !marketThread_.joinable() && !strategyThread_.joinable()
-        && !matchingThread_.joinable() && !optimizationThread_.joinable()) {
+        && !matchingThread_.joinable() && !optimizationThread_.joinable() && !userLoadThread_.joinable()) {
         return;
     }
     paused_ = false;
@@ -96,6 +97,9 @@ void SimulationEngine::stop()
     }
     if (matchingThread_.joinable()) {
         matchingThread_.join();
+    }
+    if (userLoadThread_.joinable()) {
+        userLoadThread_.join();
     }
     if (optimizationThread_.joinable()) {
         optimizationThread_.join();
@@ -359,6 +363,76 @@ void SimulationEngine::matchingLoop()
     {
         std::lock_guard<std::mutex> lock(mutex_);
         concurrency_.matchingActive = false;
+    }
+}
+
+void SimulationEngine::userLoadLoop()
+{
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        concurrency_.userLoadThreadId = threadIdText();
+        concurrency_.userLoadActive = true;
+        concurrency_.users.clear();
+        for (int i = 1; i <= 8; ++i) {
+            concurrency_.users.push_back(ConcurrencySnapshot::UserSession{ i, 100000.0 + i * 800.0, 0, 0, true });
+        }
+        concurrency_.activeUsers = static_cast<int>(concurrency_.users.size());
+    }
+    addLog(L"User load thread started: 8 simulated users run parallel std::async quote/backtest requests.");
+
+    int cycle = 0;
+    while (running_.load()) {
+        while (paused_.load() && running_.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(80));
+        }
+
+        std::vector<ConcurrencySnapshot::UserSession> baseUsers;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            baseUsers = concurrency_.users;
+        }
+
+        std::vector<std::future<ConcurrencySnapshot::UserSession>> futures;
+        futures.reserve(baseUsers.size());
+        for (const auto& user : baseUsers) {
+            futures.push_back(std::async(std::launch::async, [user, cycle] {
+                ConcurrencySnapshot::UserSession updated = user;
+                std::mt19937 localRng(static_cast<unsigned>(user.id * 7919 + cycle * 104729));
+                std::normal_distribution<double> pnl(0.0, 120.0);
+                updated.equity = std::max(1000.0, updated.equity + pnl(localRng));
+                updated.requests += 1 + static_cast<int>(localRng() % 4);
+                updated.latencyMs = 8 + static_cast<int>(localRng() % 45);
+                updated.active = true;
+                return updated;
+            }));
+        }
+
+        std::vector<ConcurrencySnapshot::UserSession> updatedUsers;
+        size_t requestDelta = 0;
+        for (auto& future : futures) {
+            auto user = future.get();
+            requestDelta += static_cast<size_t>(std::max(0, user.requests - baseUsers[user.id - 1].requests));
+            updatedUsers.push_back(user);
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            concurrency_.users = updatedUsers;
+            concurrency_.activeUsers = static_cast<int>(updatedUsers.size());
+            concurrency_.userRequests += requestDelta;
+        }
+        notify();
+        ++cycle;
+        std::this_thread::sleep_for(std::chrono::milliseconds(260));
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        concurrency_.userLoadActive = false;
+        concurrency_.activeUsers = 0;
+        for (auto& user : concurrency_.users) {
+            user.active = false;
+        }
     }
 }
 

@@ -815,16 +815,32 @@ void drawSidePanel(HDC dc)
     y += 20;
     text(dc, side.left + 22, y, L"Parallel MA: std::execution::par", CLR_MUTED);
 
-    y += 36;
-    text(dc, side.left + 14, y, L"Market Summary", CLR_TEXT);
+    y += 28;
+    text(dc, side.left + 14, y, L"User Load Monitor", CLR_TEXT);
     y += 24;
-    text(dc, side.left + 22, y, L"5D: -1.89%", CLR_GREEN);
-    text(dc, side.left + 150, y, L"20D: 2.73%", CLR_RED);
+    line.str(L"");
+    line.clear();
+    line << L"Active users " << c.activeUsers << L"  requests " << c.userRequests;
+    text(dc, side.left + 22, y, line.str(), c.userLoadActive ? CLR_RED : CLR_MUTED);
     y += 22;
-    text(dc, side.left + 22, y, L"Net Flow", CLR_TEXT);
-    text(dc, side.left + 190, y, L"158.8", CLR_RED);
-    y += 22;
-    text(dc, side.left + 22, y, L"Ticks are shown in Trades list.", CLR_MUTED);
+    int userRows = 0;
+    for (const auto& user : c.users) {
+        if (userRows >= 5 || y + 20 >= sy - 12) {
+            break;
+        }
+        line.str(L"");
+        line.clear();
+        line << L"U" << user.id << L" "
+             << (user.active ? L"RUN" : L"IDLE")
+             << L" eq " << std::fixed << std::setprecision(0) << user.equity
+             << L"  " << user.latencyMs << L"ms";
+        text(dc, side.left + 22, y, line.str(), user.active ? CLR_RED : CLR_MUTED);
+        y += 20;
+        ++userRows;
+    }
+    if (c.users.size() > static_cast<size_t>(userRows) && y + 18 < sy) {
+        text(dc, side.left + 22, y, L"... more simulated users", CLR_MUTED);
+    }
 
     text(dc, fieldX, sy + 8, L"Backtest Settings", CLR_TEXT);
     text(dc, fieldX, sy + 30, L"Strategy", CLR_MUTED);

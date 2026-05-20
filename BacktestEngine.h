@@ -21,19 +21,32 @@ struct OrderRecord {
 };
 
 struct ConcurrencySnapshot {
+    struct UserSession {
+        int id = 0;
+        double equity = 100000.0;
+        int requests = 0;
+        int latencyMs = 0;
+        bool active = false;
+    };
+
     std::wstring marketThreadId = L"-";
     std::wstring strategyThreadId = L"-";
     std::wstring matchingThreadId = L"-";
     std::wstring optimizationThreadId = L"-";
+    std::wstring userLoadThreadId = L"-";
     bool marketActive = false;
     bool strategyActive = false;
     bool matchingActive = false;
     bool optimizationActive = false;
+    bool userLoadActive = false;
     int optimizationTasks = 0;
+    int activeUsers = 0;
     size_t marketEvents = 0;
     size_t strategySignals = 0;
     size_t matchedOrders = 0;
     size_t uiPostMessages = 0;
+    size_t userRequests = 0;
+    std::vector<UserSession> users;
 };
 
 struct UiSnapshot {
@@ -76,6 +89,7 @@ private:
     void marketLoop();
     void strategyLoop();
     void matchingLoop();
+    void userLoadLoop();
     void recordOrder(const Order& order, const std::wstring& status, int filledVolume, double averageFillPrice);
     void applyTrade(const Trade& trade);
     void addLog(const std::wstring& text);
@@ -97,6 +111,7 @@ private:
     std::thread strategyThread_;
     std::thread matchingThread_;
     std::thread optimizationThread_;
+    std::thread userLoadThread_;
     std::atomic<bool> running_ = false;
     std::atomic<bool> paused_ = false;
     HWND notifyWindow_ = nullptr;
