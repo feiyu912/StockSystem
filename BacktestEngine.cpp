@@ -8,6 +8,7 @@
 #include <iomanip>
 #include <random>
 #include <sstream>
+#include <thread>
 
 namespace {
 
@@ -22,6 +23,13 @@ std::wstring money(double value)
 {
     std::wstringstream ss;
     ss << std::fixed << std::setprecision(2) << value;
+    return ss.str();
+}
+
+std::wstring threadIdText()
+{
+    std::wstringstream ss;
+    ss << std::this_thread::get_id();
     return ss.str();
 }
 
@@ -55,6 +63,7 @@ void SimulationEngine::start(HWND notifyWindow)
         paused_ = false;
         notifyWindow_ = notifyWindow;
         logs_.push_back(L"Engine started: market replay, strategy and matching run in worker threads.");
+        logs_.push_back(L"Parallel indicator demo enabled: moving averages use std::execution::par.");
     }
 
     marketThread_ = std::thread(&SimulationEngine::marketLoop, this);
@@ -110,7 +119,7 @@ void SimulationEngine::reset()
 UiSnapshot SimulationEngine::snapshot() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    return UiSnapshot{ bars_, prices_, equities_, orders_, trades_, logs_, account_, lastPrice_, running_, paused_ };
+    return UiSnapshot{ bars_, prices_, equities_, orders_, trades_, logs_, account_, concurrency_, lastPrice_, running_, paused_ };
 }
 
 void SimulationEngine::optimize(HWND notifyWindow)
@@ -119,7 +128,13 @@ void SimulationEngine::optimize(HWND notifyWindow)
         optimizationThread_.join();
     }
     optimizationThread_ = std::thread([this, notifyWindow] {
-        addLog(L"Parameter optimization started.");
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            concurrency_.optimizationThreadId = threadIdText();
+            concurrency_.optimizationActive = true;
+            concurrency_.optimizationTasks = 9;
+        }
+        addLog(L"Optimization thread started with 9 std::async parameter tasks.");
         std::vector<std::future<FastBacktestResult>> futures;
         for (int shortW : { 5, 10, 15 }) {
             for (int longW : { 30, 60, 90 }) {
@@ -142,6 +157,11 @@ void SimulationEngine::optimize(HWND notifyWindow)
            << L"), return " << percent(best.totalReturn)
            << L", max drawdown " << percent(best.drawdown) << L".";
         addLog(ss.str());
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            concurrency_.optimizationActive = false;
+            ++concurrency_.uiPostMessages;
+        }
         PostMessage(notifyWindow, WM_APP_ENGINE_UPDATE, 0, 0);
     });
 }
@@ -188,6 +208,13 @@ SimulationEngine::FastBacktestResult SimulationEngine::runFastBacktest(int short
 
 void SimulationEngine::marketLoop()
 {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        concurrency_.marketThreadId = threadIdText();
+        concurrency_.marketActive = true;
+    }
+    addLog(L"Market thread started: generates synthetic OHLC bars.");
+
     std::mt19937 rng(std::random_device{}());
     std::normal_distribution<double> noise(0.0002, 0.006);
     double price = 100.0;
@@ -223,6 +250,7 @@ void SimulationEngine::marketLoop()
             account_.markToMarket(lastPrice_);
             equities_.push_back(account_.equity);
             trim(equities_, 360);
+            ++concurrency_.marketEvents;
         }
 
         marketQueue_.push(event);
@@ -233,11 +261,22 @@ void SimulationEngine::marketLoop()
     running_ = false;
     marketQueue_.close();
     orderQueue_.close();
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        concurrency_.marketActive = false;
+    }
     addLog(L"Market replay finished.");
 }
 
 void SimulationEngine::strategyLoop()
 {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        concurrency_.strategyThreadId = threadIdText();
+        concurrency_.strategyActive = true;
+    }
+    addLog(L"Strategy thread started: consumes market queue and emits orders.");
+
     MovingAverageStrategy strategy(shortWindow_, longWindow_);
     MarketBar data;
     while (marketQueue_.pop(data)) {
@@ -249,6 +288,10 @@ void SimulationEngine::strategyLoop()
         auto order = strategy.onMarketData(data, position);
         if (order) {
             orderQueue_.push(*order);
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                ++concurrency_.strategySignals;
+            }
             std::wstringstream ss;
             ss << L"Strategy signal: order #" << order->id << L" "
                << (order->isBuy ? L"BUY" : L"SELL") << L" "
@@ -256,10 +299,21 @@ void SimulationEngine::strategyLoop()
             addLog(ss.str());
         }
     }
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        concurrency_.strategyActive = false;
+    }
 }
 
 void SimulationEngine::matchingLoop()
 {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        concurrency_.matchingThreadId = threadIdText();
+        concurrency_.matchingActive = true;
+    }
+    addLog(L"Matching thread started: consumes order queue and applies trades.");
+
     RiskManager risk;
     Order order;
 
@@ -296,7 +350,15 @@ void SimulationEngine::matchingLoop()
             ? L"Open limit"
             : (filledVolume == order.volume ? L"Filled" : L"Part filled");
         recordOrder(order, status, filledVolume, averageFill);
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            ++concurrency_.matchedOrders;
+        }
         notify();
+    }
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        concurrency_.matchingActive = false;
     }
 }
 
@@ -350,6 +412,7 @@ void SimulationEngine::resetLocked()
     orders_.clear();
     trades_.clear();
     logs_.clear();
+    concurrency_ = ConcurrencySnapshot{};
     lastPrice_ = 100.0;
 }
 
@@ -359,6 +422,7 @@ void SimulationEngine::notify() const
     {
         std::lock_guard<std::mutex> lock(mutex_);
         hwnd = notifyWindow_;
+        ++concurrency_.uiPostMessages;
     }
     if (hwnd) {
         PostMessage(hwnd, WM_APP_ENGINE_UPDATE, 0, 0);

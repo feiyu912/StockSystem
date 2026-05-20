@@ -20,6 +20,22 @@ struct OrderRecord {
     double averageFillPrice = 0.0;
 };
 
+struct ConcurrencySnapshot {
+    std::wstring marketThreadId = L"-";
+    std::wstring strategyThreadId = L"-";
+    std::wstring matchingThreadId = L"-";
+    std::wstring optimizationThreadId = L"-";
+    bool marketActive = false;
+    bool strategyActive = false;
+    bool matchingActive = false;
+    bool optimizationActive = false;
+    int optimizationTasks = 0;
+    size_t marketEvents = 0;
+    size_t strategySignals = 0;
+    size_t matchedOrders = 0;
+    size_t uiPostMessages = 0;
+};
+
 struct UiSnapshot {
     std::vector<MarketBar> bars;
     std::vector<double> prices;
@@ -28,6 +44,7 @@ struct UiSnapshot {
     std::vector<Trade> trades;
     std::vector<std::wstring> logs;
     Account account;
+    ConcurrencySnapshot concurrency;
     double lastPrice = 100.0;
     bool running = false;
     bool paused = false;
@@ -88,6 +105,7 @@ private:
     int longWindow_ = 30;
     std::atomic<int> replayDelayMs_ = 90;
     double lastPrice_ = 100.0;
+    mutable ConcurrencySnapshot concurrency_;
     Account account_;
     std::vector<MarketBar> bars_;
     std::vector<double> prices_;

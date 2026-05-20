@@ -768,26 +768,6 @@ void drawSidePanel(HDC dc)
     DeleteObject(bg);
 
     int y = side.top + 16;
-    text(dc, side.left + 14, y, L"Stage Return", CLR_TEXT);
-    y += 30;
-    text(dc, side.left + 20, y, L"5D:  -1.89%", CLR_GREEN);
-    text(dc, side.left + 150, y, L"20D:  2.73%", CLR_RED);
-    y += 28;
-    text(dc, side.left + 20, y, L"60D:  0.73%", CLR_RED);
-    text(dc, side.left + 150, y, L"YTD:  4.87%", CLR_RED);
-
-    y += 48;
-    text(dc, side.left + 14, y, L"Capital Flow", CLR_TEXT);
-    y += 30;
-    text(dc, side.left + 22, y, L"Main Inflow", CLR_TEXT);
-    text(dc, side.left + 190, y, L"6084", CLR_RED);
-    y += 26;
-    text(dc, side.left + 22, y, L"Main Outflow", CLR_TEXT);
-    text(dc, side.left + 190, y, L"6242", CLR_GREEN);
-    y += 26;
-    text(dc, side.left + 22, y, L"Net Flow", CLR_TEXT);
-    text(dc, side.left + 190, y, L"158.8", CLR_RED);
-
     const int sy = side.bottom - 276;
     const int fieldX = side.left + 18;
     RECT settingsBg{ side.left + 4, sy - 8, side.right - 4, side.bottom - 8 };
@@ -795,22 +775,56 @@ void drawSidePanel(HDC dc)
     FillRect(dc, &settingsBg, settingsBrush);
     DeleteObject(settingsBrush);
 
-    y += 54;
-    text(dc, side.left + 14, y, L"Realtime Ticks", CLR_TEXT);
-    y += 30;
-    const int maxTickBottom = sy - 18;
-    const int maxRows = std::max(0, (maxTickBottom - y) / 24);
-    int shown = 0;
-    for (auto it = g_app->snapshot.trades.rbegin(); it != g_app->snapshot.trades.rend() && shown < maxRows; ++it, ++shown) {
-        std::wstringstream ss;
-        ss << L"T+" << it->timestamp << L"  " << money(it->price) << L"  " << it->volume;
-        text(dc, side.left + 22, y + shown * 24, ss.str(), it->isBuy ? CLR_RED : CLR_GREEN);
-    }
-    if (shown == 0) {
-        text(dc, side.left + 22, y, L"No matched trades yet.", CLR_MUTED);
-    } else if (g_app->snapshot.trades.size() > static_cast<size_t>(shown)) {
-        text(dc, side.left + 22, maxTickBottom - 18, L"...", CLR_MUTED);
-    }
+    text(dc, side.left + 14, y, L"Concurrency Monitor", CLR_TEXT);
+    y += 24;
+    const auto shortId = [](const std::wstring& id) {
+        if (id.size() <= 8) {
+            return id;
+        }
+        return id.substr(id.size() - 8);
+    };
+    const auto stateText = [](bool active) { return active ? L"RUN" : L"IDLE"; };
+    const auto stateColor = [](bool active) { return active ? CLR_RED : CLR_MUTED; };
+    const auto& c = g_app->snapshot.concurrency;
+    std::wstringstream line;
+    line << L"Market   " << stateText(c.marketActive) << L" #" << shortId(c.marketThreadId)
+         << L" bars " << c.marketEvents;
+    text(dc, side.left + 22, y, line.str(), stateColor(c.marketActive));
+    y += 20;
+    line.str(L"");
+    line.clear();
+    line << L"Strategy " << stateText(c.strategyActive) << L" #" << shortId(c.strategyThreadId)
+         << L" sig " << c.strategySignals;
+    text(dc, side.left + 22, y, line.str(), stateColor(c.strategyActive));
+    y += 20;
+    line.str(L"");
+    line.clear();
+    line << L"Matching " << stateText(c.matchingActive) << L" #" << shortId(c.matchingThreadId)
+         << L" ord " << c.matchedOrders;
+    text(dc, side.left + 22, y, line.str(), stateColor(c.matchingActive));
+    y += 20;
+    line.str(L"");
+    line.clear();
+    line << L"Optimize " << stateText(c.optimizationActive) << L" async " << c.optimizationTasks;
+    text(dc, side.left + 22, y, line.str(), stateColor(c.optimizationActive));
+    y += 20;
+    line.str(L"");
+    line.clear();
+    line << L"UI PostMessage " << c.uiPostMessages;
+    text(dc, side.left + 22, y, line.str(), CLR_MUTED);
+    y += 20;
+    text(dc, side.left + 22, y, L"Parallel MA: std::execution::par", CLR_MUTED);
+
+    y += 36;
+    text(dc, side.left + 14, y, L"Market Summary", CLR_TEXT);
+    y += 24;
+    text(dc, side.left + 22, y, L"5D: -1.89%", CLR_GREEN);
+    text(dc, side.left + 150, y, L"20D: 2.73%", CLR_RED);
+    y += 22;
+    text(dc, side.left + 22, y, L"Net Flow", CLR_TEXT);
+    text(dc, side.left + 190, y, L"158.8", CLR_RED);
+    y += 22;
+    text(dc, side.left + 22, y, L"Ticks are shown in Trades list.", CLR_MUTED);
 
     text(dc, fieldX, sy + 8, L"Backtest Settings", CLR_TEXT);
     text(dc, fieldX, sy + 30, L"Strategy", CLR_MUTED);

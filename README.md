@@ -18,6 +18,7 @@ Pure Win32 C++ stock trading and quantitative backtest simulator.
 - Worker threads: market replay, strategy signal generation, and order matching run on `std::thread`.
 - UI-thread marshaling: workers call `PostMessage(..., WM_APP + 1, ...)` and the main thread refreshes controls.
 - Parallel calculation: moving averages are computed with C++17 `std::execution::par`.
+- Concurrency monitor: the right-side panel shows worker thread states, thread ids, queue activity counters, async optimization tasks, and UI `PostMessage` counts.
 - No Qt dependency.
 
 ## Build
