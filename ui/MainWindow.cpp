@@ -513,6 +513,7 @@ void layout(HWND window)
     const int bottomHeight = 170;
     const int bottomTopInset = 40;
     const int gap = 10;
+    const int sideGap = 56;
     const int chartBottom = height - bottomHeight - gap;
     const int plotTop = top + quoteHeight + tabHeight + gap;
     const int mainWidth = width - sideWidth - gap * 3;
@@ -522,7 +523,7 @@ void layout(HWND window)
     g_app->rects.chart = { 82, plotTop + 18, mainWidth, plotTop + (chartBottom - plotTop) * 55 / 100 };
     g_app->rects.volume = { 82, g_app->rects.chart.bottom + 28, mainWidth, g_app->rects.chart.bottom + 128 };
     g_app->rects.indicator = { 82, g_app->rects.volume.bottom + 28, mainWidth, chartBottom };
-    g_app->rects.side = { width - sideWidth - gap, top + quoteHeight + 4, width - gap, chartBottom };
+    g_app->rects.side = { mainWidth + sideGap, top + quoteHeight + 4, width - gap, chartBottom };
     g_app->rects.bottom = { 14, height - bottomHeight + bottomTopInset, width - 14, height - 32 };
 
     const int tabY = g_app->rects.tabs.top + 6;
@@ -534,15 +535,15 @@ void layout(HWND window)
     const int sx = g_app->rects.side.left;
     const int sy = g_app->rects.side.bottom - 276;
     const int fieldX = sx + 18;
-    const int fieldWidth = sideWidth - 36;
+    const int fieldWidth = std::max(160, static_cast<int>(g_app->rects.side.right - g_app->rects.side.left - 36));
     MoveWindow(g_app->hStrategy, fieldX, sy + 48, fieldWidth, 170, TRUE);
     MoveWindow(g_app->hCash, fieldX, sy + 112, fieldWidth, 24, TRUE);
-    MoveWindow(g_app->hShort, fieldX, sy + 176, 112, 24, TRUE);
-    MoveWindow(g_app->hLong, fieldX + 136, sy + 176, 112, 24, TRUE);
-    MoveWindow(g_app->hStart, fieldX, sy + 232, 58, 24, TRUE);
-    MoveWindow(g_app->hPause, fieldX + 68, sy + 232, 58, 24, TRUE);
-    MoveWindow(g_app->hReset, fieldX + 136, sy + 232, 58, 24, TRUE);
-    MoveWindow(g_app->hOptimize, fieldX + 204, sy + 232, 64, 24, TRUE);
+    MoveWindow(g_app->hShort, fieldX, sy + 176, 104, 24, TRUE);
+    MoveWindow(g_app->hLong, fieldX + 124, sy + 176, 104, 24, TRUE);
+    MoveWindow(g_app->hStart, fieldX, sy + 232, 50, 24, TRUE);
+    MoveWindow(g_app->hPause, fieldX + 58, sy + 232, 50, 24, TRUE);
+    MoveWindow(g_app->hReset, fieldX + 116, sy + 232, 50, 24, TRUE);
+    MoveWindow(g_app->hOptimize, fieldX + 174, sy + 232, 58, 24, TRUE);
 
     const int third = (g_app->rects.bottom.right - g_app->rects.bottom.left - 20) / 3;
     const int listTop = g_app->rects.bottom.top + 24;
@@ -753,8 +754,15 @@ void drawTimeLabels(HDC dc, const RECT& rect, const std::vector<MarketBar>& bars
     SetTextColor(dc, CLR_TEXT);
     for (int i = 0; i <= 4; ++i) {
         const size_t index = std::min(bars.size() - 1, static_cast<size_t>(i * (bars.size() - 1) / 4));
-        const int x = rect.left + (rect.right - rect.left) * i / 4 - 18;
         const std::wstring label = timestampText(bars[index].timestamp);
+        SIZE labelSize{};
+        GetTextExtentPoint32W(dc, label.c_str(), static_cast<int>(label.size()), &labelSize);
+        int x = rect.left + (rect.right - rect.left) * i / 4 - labelSize.cx / 2;
+        if (i == 0) {
+            x = rect.left;
+        } else if (i == 4) {
+            x = rect.right - labelSize.cx;
+        }
         TextOutW(dc, x, rect.bottom + 5, label.c_str(), static_cast<int>(label.size()));
     }
 }
