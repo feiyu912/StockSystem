@@ -13,25 +13,31 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="core">
+      <UniqueIdentifier>{B7D8B51A-1A41-49D1-AB57-9D2E9049A04F}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ui">
+      <UniqueIdentifier>{A61E6D7B-BB46-4671-A924-A558436CF208}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="AppMessages.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="ui\AppMessages.h">
+      <Filter>ui</Filter>
     </ClInclude>
-    <ClInclude Include="BacktestEngine.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="core\BacktestEngine.h">
+      <Filter>core</Filter>
     </ClInclude>
     <ClInclude Include="framework.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="Indicators.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="core\Indicators.h">
+      <Filter>core</Filter>
     </ClInclude>
-    <ClInclude Include="MainWindow.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="ui\MainWindow.h">
+      <Filter>ui</Filter>
     </ClInclude>
-    <ClInclude Include="MarketDataStore.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="core\MarketDataStore.h">
+      <Filter>core</Filter>
     </ClInclude>
     <ClInclude Include="targetver.h">
       <Filter>头文件</Filter>
@@ -42,28 +48,28 @@
     <ClInclude Include="StockSystem.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="TradingCore.h">
-      <Filter>头文件</Filter>
+    <ClInclude Include="core\TradingCore.h">
+      <Filter>core</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="BacktestEngine.cpp">
-      <Filter>源文件</Filter>
+    <ClCompile Include="core\BacktestEngine.cpp">
+      <Filter>core</Filter>
     </ClCompile>
-    <ClCompile Include="Indicators.cpp">
-      <Filter>源文件</Filter>
+    <ClCompile Include="core\Indicators.cpp">
+      <Filter>core</Filter>
     </ClCompile>
-    <ClCompile Include="MainWindow.cpp">
-      <Filter>源文件</Filter>
+    <ClCompile Include="ui\MainWindow.cpp">
+      <Filter>ui</Filter>
     </ClCompile>
-    <ClCompile Include="MarketDataStore.cpp">
-      <Filter>源文件</Filter>
+    <ClCompile Include="core\MarketDataStore.cpp">
+      <Filter>core</Filter>
     </ClCompile>
     <ClCompile Include="StockSystem.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="TradingCore.cpp">
-      <Filter>源文件</Filter>
+    <ClCompile Include="core\TradingCore.cpp">
+      <Filter>core</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

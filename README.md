@@ -1,52 +1,37 @@
 # StockSystem
 
-StockSystem is a pure Win32 C++ stock trading simulator and quantitative backtest demo. It uses native Windows controls, GDI drawing, worker threads, local CSV market data, and several built-in strategies to show how a desktop trading/backtest system can be structured without Qt, MFC, DuiLib, or a web runtime.
+StockSystem is a pure Win32 C++ stock trading simulator and quantitative backtest demo. It uses native Windows controls, GDI drawing, worker threads, local CSV market data, and built-in strategies to show how a desktop trading/backtest system can be structured without Qt, MFC, DuiLib, or a web runtime.
+
+The current project is centered on real A-share daily-bar data. The app loads all symbols listed in `data/stocks.csv` into one shared market replay clock, then lets the UI switch the visible symbol without restarting market time.
 
 ## Highlights
 
 - Pure native Windows application: `wWinMain`, window class registration, message loop, window procedure, and Win32 controls.
-- Trading-style dashboard drawn with GDI: quote header, period toolbar, K-line chart, moving averages, volume/indicator panel, orders, trades, logs, equity curve, and side metrics.
-- Multi-threaded simulation engine: market replay, strategy generation, order matching, optimization, and simulated user load run on worker threads.
-- UI-thread marshaling with `PostMessage`, so worker threads update the interface through the main window thread.
-- Local market data store backed by AkShare-style CSV files under `data/`.
+- Trading-style dashboard drawn with GDI: quote header, period selector, K-line chart, moving averages, volume/indicator panel, orders, trades, logs, equity curve, and side metrics.
+- Real local A-share daily data exported from AkShare-compatible CSV files under `data/`.
+- Shared market timeline: `Start` advances all loaded stocks together, `Pause` freezes market time, and `Reset` returns the whole simulation to its initial state.
+- Symbol selector changes the viewed stock only; it does not restart or pause the replay clock.
+- Period selector is aligned with the current daily data source: `Day`, `Week`, and `Month`.
 - Strategy selector with moving-average crossover, breakout, mean reversion, momentum, RSI reversal, and Bollinger band strategies.
 - Technical indicators: volume, RSI, KDJ, and MACD.
-- Replay controls for symbol, period, speed, initial cash, strategy, and strategy windows.
-- Concurrency monitor showing worker states, thread ids, queue counts, async optimization activity, UI message counts, and simulated user latency.
+- Multi-threaded simulation engine: market replay, strategy generation, matching, optimization, and virtual user simulation run on worker threads.
+- Virtual strategy users rotate across the loaded stocks and strategies to show concurrent multi-symbol activity.
 
 ## Architecture
 
-The project is split into a small Win32 shell, a simulation engine, trading-domain logic, indicators, and a local data store:
+The codebase is split into a Win32 shell, UI layer, core simulation logic, local data scripts, and a reserved Python research layer:
 
 - `StockSystem.cpp` starts the Windows application, registers the main window class, creates the main window, and runs the message loop.
-- `MainWindow.cpp` owns the UI state, child controls, GDI rendering, chart interaction, keyboard/mouse handling, and refresh flow.
-- `AppMessages.h` defines the custom `WM_APP_ENGINE_UPDATE` message used by worker threads to request UI refreshes.
-- `BacktestEngine.cpp` owns the runtime engine: start, pause, reset, stop, snapshots, replay, strategy scheduling, matching, optimization, and simulated user load.
-- `TradingCore.cpp` owns reusable trading primitives: blocking queues, account/equity tracking, risk checks, order book matching, orders, trades, and strategy implementations.
-- `Indicators.cpp` owns calculation helpers for moving averages, RSI, KDJ, and MACD. Moving-average calculation uses `std::execution::par`.
-- `MarketDataStore.cpp` loads local CSV files into memory and serves replay/user-load range queries.
-- `StockSystem.rc`, icons, and `Resource.h` provide the native Windows application resources.
+- `ui/MainWindow.cpp` owns the UI state, child controls, GDI rendering, chart interaction, keyboard/mouse handling, and refresh flow.
+- `ui/AppMessages.h` defines the custom UI update message.
+- `core/BacktestEngine.cpp` owns the runtime engine: start, pause, reset, stop, snapshots, shared market replay, strategy scheduling, matching, optimization, and virtual user simulation.
+- `core/TradingCore.cpp` owns reusable trading primitives: blocking queues, account/equity tracking, risk checks, order book matching, orders, trades, and strategy implementations.
+- `core/Indicators.cpp` owns calculation helpers for moving averages, RSI, KDJ, and MACD.
+- `core/MarketDataStore.cpp` loads local CSV files into memory and serves range queries.
+- `scripts/` contains data fetch and normalization utilities.
+- `python/` is reserved for future Python strategy and research interfaces.
 
-Runtime communication is deliberately simple: the market thread pushes bars into a `BlockingQueue`, the strategy thread consumes market data and emits orders, the matching thread turns accepted orders into trades through the `OrderBook`, and the UI reads immutable snapshots on the main thread. Worker threads never directly repaint controls; they call `PostMessage` and let the main window handle refreshes.
-
-## Screenshot-Oriented Feature Tour
-
-The main window is organized like a market terminal:
-
-- Top area: selected symbol, quote snapshot, period buttons, replay speed, and indicator selector.
-- Center chart: K-line candles with MA5, MA10, MA20, and MA60 overlays.
-- Lower chart: switchable volume, RSI, KDJ, or MACD panel.
-- Left/control area: start, pause, reset, capital, strategy, short/long windows, and status.
-- Tables: generated orders and matched trades.
-- Right panel: account metrics, drawdown, worker-thread state, queue counters, and simulated multi-user load.
-
-The UI controls include:
-
-- `Start`, `Pause`, `Reset`, and `Optimize` buttons.
-- Symbol, period, replay speed, indicator, and strategy combo boxes.
-- Initial cash, short window, and long window inputs.
-- Orders, trades, and logs list boxes.
-- A bottom status bar with the selected symbol, period, latest price, cash, position, equity, and drawdown.
+Runtime communication is deliberately simple: the market thread advances a shared timeline, publishes the currently viewed symbol to the UI snapshot, pushes market events into a queue, and worker threads handle strategy and matching. Worker threads never repaint controls directly; they notify the main window and the UI reads immutable snapshots.
 
 ## Build
 
@@ -54,87 +39,106 @@ Open `StockSystem.vcxproj` or `StockSystem.slnx` in Visual Studio and build `Deb
 
 Expected environment:
 
-- Visual Studio 2022
+- Visual Studio 2022 or newer
 - Windows SDK 10.0
-- Platform toolset `v143`
 - C++20
 
-Configured project platforms:
+The project file defaults to toolset `v143`. On a machine with a newer toolset only, build with an override such as:
 
-- `Debug|Win32`
-- `Release|Win32`
-- `Debug|x64`
-- `Release|x64`
-
-The project builds as a normal Windows subsystem executable. Runtime does not require Python, AkShare, network access, Qt, MFC, or DuiLib.
+```powershell
+& "D:\visual studio\MSBuild\Current\Bin\amd64\MSBuild.exe" "G:\c\StockSystem\StockSystem.vcxproj" /p:Configuration=Debug /p:Platform=x64 /p:PlatformToolset=v145 /m
+```
 
 ## Run
 
-After building, run the generated executable:
+After building, run:
 
 ```powershell
 .\x64\Debug\StockSystem.exe
 ```
 
-The application starts with the sample CSV data in `data/akshare_export_TEST_SH.csv`. If no imported stock list exists, the UI falls back to the bundled sample.
+The app reads `data/stocks.csv` at startup. The current real-data set contains:
+
+- `000001.SZ` - Ping An Bank
+- `300750.SZ` - CATL
+- `600519.SH` - Kweichow Moutai
 
 ## Controls
 
-- `Space`: start or pause replay
-- `R`: reset the simulation
-- `Esc`: stop
-- `F1`: show help
-- Mouse wheel over the chart: zoom visible K-line bars
-- Left click on the chart: inspect OHLC data near the cursor
-- Drag the main chart left or right: pan through visible history
-- Click the user-load section: expand or collapse simulated users when more rows are available
+- `Start`: start the shared market timeline for all loaded stocks.
+- `Pause`: pause or resume the shared market timeline.
+- `Reset`: return the whole simulation to the initial state.
+- Symbol combo box: switch the visible stock only.
+- Period combo box: aggregate daily bars as `Day`, `Week`, or `Month`.
+- Strategy combo box: choose the strategy used by the main strategy thread.
+- `Space`: start or pause replay.
+- `R`: reset the simulation.
+- `Esc`: stop.
+- `F1`: show help.
+- Mouse wheel over the chart: zoom visible K-line bars.
+- Left click on the chart: inspect OHLC data near the cursor.
+- Drag the main chart left or right: pan through visible history.
+- Click the virtual-user section: expand or collapse simulated users when more rows are available.
 
 ## Market Data
 
-StockSystem reads local CSV files, so the simulator is deterministic and can run offline. CSV rows should use this format:
+StockSystem reads deterministic local CSV files. CSV rows use this normalized schema:
 
 ```csv
 symbol,timestamp,open,high,low,close,volume
-TEST.SH,1,12.30,12.80,12.10,12.65,360000
+000001.SZ,20200102,14.18,14.48,14.08,14.40,1530232
 ```
 
-By convention, generated stock files are named:
+Files are named:
 
 ```text
 data/akshare_export_<symbol>.csv
 ```
 
-The optional stock list is:
+The stock list is:
 
 ```text
 data/stocks.csv
 ```
 
-with rows containing:
+with rows:
 
 ```csv
 symbol,name,path
-600519.SH,Kweichow Moutai,data\akshare_export_600519_SH.csv
+000001.SZ,平安银行,data\akshare_export_000001_SZ.csv
+300750.SZ,宁德时代,data\akshare_export_300750_SZ.csv
+600519.SH,贵州茅台,data\akshare_export_600519_SH.csv
 ```
 
-If `data/stocks.csv` is missing, the program scans `data/` for `akshare_export_*.csv` files and also keeps the bundled sample available.
+`timestamp` should be a real trading date in `YYYYMMDD` form. If old files still contain `1,2,3...`, rerun the fetch script with the current version.
 
-## Fetch Real A-Share Data
+## Fetch And Prepare Data
 
-The simulator itself does not need Python, but the repository includes a helper script for exporting local CSV files from AkShare:
+The app itself does not require Python at runtime, but the repository includes Python helpers for data work.
+
+Install AkShare in the Python environment used for fetching:
 
 ```powershell
 pip install akshare
-python scripts\fetch_stock_data.py 600519 000001 300750
 ```
 
-Useful options:
+Fetch the current three-stock daily-bar data:
 
 ```powershell
-python scripts\fetch_stock_data.py 600519 --start 20200101 --end 20260520 --output-dir data
+python scripts\fetch_stock_data.py 600519 000001 300750 --start 20200101 --end 20260520 --output-dir data --no-proxy --retries 5
 ```
 
-The script writes one CSV per symbol and updates `data/stocks.csv`.
+Normalize, validate, sort, deduplicate, regenerate `data/stocks.csv`, and write a compact report:
+
+```powershell
+python scripts\prepare_market_data.py --write
+```
+
+The report is written to:
+
+```text
+data/market_data_report.csv
+```
 
 ## Strategies
 
@@ -159,34 +163,36 @@ The simulator tracks:
 - Total fees, including commission, transfer fee, and stamp duty logic in the engine.
 - Open, filled, partially filled, and risk-rejected order states.
 
-The `Optimize` button launches a background optimization thread. It evaluates 9 moving-average parameter combinations with `std::async` tasks, then logs the best short/long window pair by total return and max drawdown.
+The `Optimize` button launches a background optimization thread. It evaluates moving-average parameter combinations with `std::async` tasks, then logs the best short/long window pair by total return and max drawdown.
 
 The right-side concurrency panel shows:
 
-- Market, strategy, matching, optimization, and user-load thread status.
+- Market, strategy, matching, optimization, and virtual-user thread status.
 - Thread ids shortened for display.
 - Queue/event counters.
-- `PostMessage` refresh count.
-- 8 simulated users issuing parallel quote/backtest-style requests and reporting equity/request/latency snapshots.
+- UI update notification count.
+- 8 virtual users assigned to existing stocks and rotating strategies.
 
 ## Repository Layout
 
-- `AppMessages.h`: custom Win32 app message id.
-- `StockSystem.cpp`: Win32 entry point and message loop.
-- `MainWindow.h/.cpp`: native controls, layout, GDI drawing, chart interactions, and UI refresh.
-- `BacktestEngine.h/.cpp`: worker threads, replay loop, strategy loop, matching loop, optimization, snapshots, and user-load simulation.
-- `TradingCore.h/.cpp`: blocking queue, account model, orders, trades, risk manager, order book, and strategy implementations.
-- `Indicators.h/.cpp`: moving averages, RSI, KDJ, and MACD calculations.
-- `MarketDataStore.h/.cpp`: local CSV loading and range queries.
-- `scripts/fetch_stock_data.py`: optional AkShare export helper.
-- `data/akshare_export_TEST_SH.csv`: bundled sample data.
+- `core/BacktestEngine.h/.cpp`: worker threads, shared market replay loop, strategy loop, matching loop, optimization, snapshots, and virtual users.
+- `core/TradingCore.h/.cpp`: blocking queue, account model, orders, trades, risk manager, order book, and strategies.
+- `core/Indicators.h/.cpp`: moving averages, RSI, KDJ, and MACD calculations.
+- `core/MarketDataStore.h/.cpp`: local CSV loading and range queries.
+- `ui/AppMessages.h`: custom Win32 app message id.
+- `ui/MainWindow.h/.cpp`: native controls, layout, GDI drawing, chart interactions, and UI refresh.
+- `scripts/fetch_stock_data.py`: AkShare daily-bar export helper with retry and no-proxy options.
+- `scripts/prepare_market_data.py`: CSV validation, normalization, stock-list generation, and report generation.
+- `python/README.md`: placeholder for future Python strategy and research interfaces.
+- `data/`: local daily-bar CSV files, `stocks.csv`, and `market_data_report.csv`.
 - `StockSystem.vcxproj`, `StockSystem.vcxproj.filters`, `StockSystem.slnx`: Visual Studio project files.
 - `StockSystem.rc`, `Resource.h`, `StockSystem.ico`, `small.ico`: Windows resources.
 - `framework.h`, `targetver.h`, `StockSystem.h`: standard Win32 project headers.
 
 ## Notes
 
-- Visual Studio's `Source Files`, `Header Files`, and `Resource Files` groups come from `StockSystem.vcxproj.filters`; they are project filters, not real folders. GitHub shows the actual repository file layout.
-- The default project toolset is `v143`. If your local Visual Studio installation only has a newer toolset, either install the v143 build tools or retarget the project in Visual Studio.
-- The replay engine loads local data into memory, then uses it for chart replay and simulated user quote/backtest requests.
-- Orders can be filled, partially filled, left open as limit orders, or rejected by risk checks.
+- Current real data is daily-bar data. Minute data is not included yet.
+- `Day`, `Week`, and `Month` are display aggregations over local daily bars.
+- `000001.SZ` is Ping An Bank, not the Shanghai Composite Index. The Shanghai Composite is `000001.SH` and should be fetched through an index-data path if needed later.
+- Visual Studio's filters are project filters, not necessarily physical folders.
+- The replay engine loads local data into memory before replay.

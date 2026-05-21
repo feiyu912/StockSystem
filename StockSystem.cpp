@@ -1,7 +1,7 @@
 // StockSystem.cpp : native Win32 program entry and message loop.
 
 #include "framework.h"
-#include "MainWindow.h"
+#include "ui/MainWindow.h"
 #include "Resource.h"
 
 #include <commctrl.h>

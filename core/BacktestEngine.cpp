@@ -1,14 +1,15 @@
 #include "BacktestEngine.h"
-#include "AppMessages.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <fstream>
 #include <future>
 #include <iomanip>
 #include <random>
 #include <sstream>
 #include <thread>
+#include <utility>
 
 namespace {
 
@@ -38,6 +39,131 @@ constexpr double kMinCommission = 5.0;
 constexpr double kStampDutyRate = 0.0005;
 constexpr double kTransferFeeRate = 0.00001;
 
+struct UserStock {
+    std::string symbol;
+    std::wstring path;
+};
+
+std::wstring widenAscii(const std::string& text)
+{
+    return std::wstring(text.begin(), text.end());
+}
+
+std::string narrowAscii(const std::wstring& text)
+{
+    std::string result;
+    result.reserve(text.size());
+    for (wchar_t ch : text) {
+        result.push_back(static_cast<char>(ch));
+    }
+    return result;
+}
+
+std::wstring strategyName(StrategyKind kind)
+{
+    switch (kind) {
+    case StrategyKind::Breakout:
+        return L"Breakout";
+    case StrategyKind::MeanReversion:
+        return L"MeanRev";
+    case StrategyKind::Momentum:
+        return L"Momentum";
+    case StrategyKind::RsiReversal:
+        return L"RSI";
+    case StrategyKind::BollingerBand:
+        return L"Bollinger";
+    case StrategyKind::MovingAverage:
+    default:
+        return L"MA Cross";
+    }
+}
+
+StrategyKind userStrategy(int id)
+{
+    switch ((id - 1) % 6) {
+    case 1:
+        return StrategyKind::Breakout;
+    case 2:
+        return StrategyKind::MeanReversion;
+    case 3:
+        return StrategyKind::Momentum;
+    case 4:
+        return StrategyKind::RsiReversal;
+    case 5:
+        return StrategyKind::BollingerBand;
+    case 0:
+    default:
+        return StrategyKind::MovingAverage;
+    }
+}
+
+double strategyExposure(StrategyKind kind, const std::vector<MarketBar>& rows)
+{
+    if (rows.size() < 2) {
+        return 0.0;
+    }
+
+    const double open = std::max(0.0001, rows.front().open);
+    const double last = rows.back().close;
+    const double first = rows.front().close;
+    const double pct = last / open - 1.0;
+
+    double high = rows.front().high;
+    double low = rows.front().low;
+    double sum = 0.0;
+    for (const auto& row : rows) {
+        high = std::max(high, row.high);
+        low = std::min(low, row.low);
+        sum += row.close;
+    }
+    const double mean = sum / static_cast<double>(rows.size());
+
+    switch (kind) {
+    case StrategyKind::Breakout:
+        return last >= high * 0.985 ? pct * 1.25 : pct * 0.35;
+    case StrategyKind::MeanReversion:
+        return last < mean ? -pct * 0.7 : pct * 0.25;
+    case StrategyKind::Momentum:
+        return (last / std::max(0.0001, first) - 1.0) * 1.15;
+    case StrategyKind::RsiReversal:
+        return last < mean * 0.96 ? std::abs(pct) * 0.75 : pct * 0.2;
+    case StrategyKind::BollingerBand:
+        return (last < mean ? -pct : pct) * 0.55;
+    case StrategyKind::MovingAverage:
+    default:
+        return pct * 0.8;
+    }
+}
+
+std::vector<UserStock> loadUserStocks()
+{
+    std::vector<UserStock> stocks;
+    std::ifstream file("data\\stocks.csv");
+    std::string line;
+    if (file) {
+        std::getline(file, line);
+        while (std::getline(file, line)) {
+            if (line.empty()) {
+                continue;
+            }
+            std::stringstream ss(line);
+            std::string symbol;
+            std::string name;
+            std::string path;
+            std::getline(ss, symbol, ',');
+            std::getline(ss, name, ',');
+            std::getline(ss, path, ',');
+            if (!symbol.empty() && !path.empty()) {
+                stocks.push_back(UserStock{ symbol, widenAscii(path) });
+            }
+        }
+    }
+    if (stocks.empty()) {
+        stocks.push_back(UserStock{ "TEST.SH", L"data\\akshare_export_TEST_SH.csv" });
+    }
+    return stocks;
+}
+
 } // namespace
 
 SimulationEngine::~SimulationEngine()
@@ -54,6 +180,9 @@ void SimulationEngine::configure(double initialCash, int shortWindow, int longWi
     strategyKind_ = strategyKind;
     dataPath_ = dataPath.empty() ? L"data\\akshare_export_TEST_SH.csv" : dataPath;
     symbol_ = symbol.empty() ? "TEST.SH" : symbol;
+    if (!universe_.empty()) {
+        rebuildSelectedChartLocked(replayIndex_);
+    }
 }
 
 void SimulationEngine::setReplayDelay(int milliseconds)
@@ -61,7 +190,7 @@ void SimulationEngine::setReplayDelay(int milliseconds)
     replayDelayMs_ = std::clamp(milliseconds, 10, 1000);
 }
 
-void SimulationEngine::start(HWND notifyWindow)
+void SimulationEngine::start(std::function<void()> onUpdate)
 {
     stop();
     {
@@ -69,7 +198,7 @@ void SimulationEngine::start(HWND notifyWindow)
         resetLocked();
         running_ = true;
         paused_ = false;
-        notifyWindow_ = notifyWindow;
+        onUpdate_ = std::move(onUpdate);
         logs_.push_back(L"Engine started: market replay, strategy and matching run in worker threads.");
         logs_.push_back(L"Parallel indicator demo enabled: moving averages use std::execution::par.");
     }
@@ -128,18 +257,37 @@ void SimulationEngine::reset()
     notify();
 }
 
+void SimulationEngine::selectSymbol(const std::wstring& dataPath, const std::string& symbol)
+{
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        dataPath_ = dataPath.empty() ? dataPath_ : dataPath;
+        symbol_ = symbol.empty() ? symbol_ : symbol;
+        rebuildSelectedChartLocked(replayIndex_);
+        std::wstringstream ss;
+        ss << L"Viewing symbol changed to " << widenAscii(symbol_) << L" at current market time.";
+        logs_.push_back(ss.str());
+        trim(logs_, 80);
+    }
+    notify();
+}
+
 UiSnapshot SimulationEngine::snapshot() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
     return UiSnapshot{ bars_, prices_, equities_, orders_, trades_, logs_, account_, initialCash_, totalFees_, concurrency_, dataStore_.snapshot(), lastPrice_, running_, paused_ };
 }
 
-void SimulationEngine::optimize(HWND notifyWindow)
+void SimulationEngine::optimize(std::function<void()> onUpdate)
 {
     if (optimizationThread_.joinable()) {
         optimizationThread_.join();
     }
-    optimizationThread_ = std::thread([this, notifyWindow] {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        onUpdate_ = std::move(onUpdate);
+    }
+    optimizationThread_ = std::thread([this] {
         {
             std::lock_guard<std::mutex> lock(mutex_);
             concurrency_.optimizationThreadId = threadIdText();
@@ -172,9 +320,8 @@ void SimulationEngine::optimize(HWND notifyWindow)
         {
             std::lock_guard<std::mutex> lock(mutex_);
             concurrency_.optimizationActive = false;
-            ++concurrency_.uiPostMessages;
         }
-        PostMessage(notifyWindow, WM_APP_ENGINE_UPDATE, 0, 0);
+        notify();
     });
 }
 
@@ -233,59 +380,84 @@ void SimulationEngine::marketLoop()
         concurrency_.marketThreadId = threadIdText();
         concurrency_.marketActive = true;
     }
-    addLog(L"Market thread started: generates synthetic OHLC bars.");
-    std::wstring dataPath;
-    std::string symbol;
+    addLog(L"Market thread started: advances one shared timeline for all loaded stocks.");
+    std::wstring selectedPath;
+    std::string selectedSymbol;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        dataPath = dataPath_;
-        symbol = symbol_;
+        selectedPath = dataPath_;
+        selectedSymbol = symbol_;
     }
-    dataStore_.loadOrCreate(dataPath, symbol);
-    auto replayBars = dataStore_.allBars();
+
+    std::vector<ReplaySource> loadedSources;
+    for (const auto& stock : loadUserStocks()) {
+        MarketDataStore store;
+        store.loadOrCreate(stock.path, stock.symbol);
+        auto bars = store.allBars();
+        if (!bars.empty()) {
+            loadedSources.push_back(ReplaySource{ stock.path, stock.symbol, std::move(bars) });
+        }
+    }
+    if (loadedSources.empty()) {
+        MarketDataStore store;
+        store.loadOrCreate(selectedPath, selectedSymbol);
+        loadedSources.push_back(ReplaySource{ selectedPath, selectedSymbol, store.allBars() });
+    }
+
+    size_t replayLength = 0;
+    for (const auto& source : loadedSources) {
+        replayLength = std::max(replayLength, source.bars.size());
+    }
+    dataStore_.loadOrCreate(selectedPath, selectedSymbol);
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        universe_ = std::move(loadedSources);
+        replayIndex_ = 0;
+    }
     {
         std::wstringstream ss;
-        ss << L"Local data store loaded: " << dataPath << L", cached in memory for replay and user queries.";
+        ss << L"Market universe loaded: " << universe_.size() << L" symbols share one replay clock.";
         addLog(ss.str());
     }
 
-    std::mt19937 rng(std::random_device{}());
-    std::normal_distribution<double> noise(0.0002, 0.006);
-    double price = 100.0;
-
-    for (long long timestamp = 1; running_.load() && timestamp <= 2000; ++timestamp) {
+    for (size_t index = 0; running_.load() && index < replayLength; ++index) {
         while (paused_.load() && running_.load()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(80));
         }
 
-        if (replayBars.empty()) {
-            const double open = price;
-            const double close = std::max(5.0, open * (1.0 + noise(rng)));
-            const double shadow = std::abs(close - open) + 0.20 + static_cast<double>(rng() % 40) / 100.0;
-            MarketBar generated;
-            generated.open = open;
-            generated.high = std::max(open, close) + shadow * 0.55;
-            generated.low = std::max(1.0, std::min(open, close) - shadow * 0.45);
-            generated.close = close;
-            generated.price = close;
-            generated.volume = 100 + static_cast<int>(rng() % 900);
-            generated.symbol = symbol;
-            replayBars.push_back(generated);
-            price = close;
+        MarketBar event;
+        bool hasSelectedEvent = false;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            replayIndex_ = index + 1;
+            for (const auto& source : universe_) {
+                if (source.symbol == symbol_ && index < source.bars.size()) {
+                    event = source.bars[index];
+                    hasSelectedEvent = true;
+                    break;
+                }
+            }
+            if (!hasSelectedEvent) {
+                for (const auto& source : universe_) {
+                    if (index < source.bars.size()) {
+                        event = source.bars[index];
+                        symbol_ = source.symbol;
+                        dataPath_ = source.path;
+                        hasSelectedEvent = true;
+                        break;
+                    }
+                }
+            }
         }
-
-        MarketBar event = replayBars[static_cast<size_t>((timestamp - 1) % replayBars.size())];
-        event.timestamp = timestamp;
-        event.symbol = symbol;
-        price = event.close;
+        if (!hasSelectedEvent) {
+            continue;
+        }
+        const double price = event.close;
 
         {
             std::lock_guard<std::mutex> lock(mutex_);
             lastPrice_ = price;
-            bars_.push_back(event);
-            trim(bars_, 360);
-            prices_.push_back(price);
-            trim(prices_, 360);
+            rebuildSelectedChartLocked(index + 1);
             account_.markToMarket(lastPrice_);
             equities_.push_back(account_.equity);
             trim(equities_, 360);
@@ -439,17 +611,26 @@ void SimulationEngine::matchingLoop()
 
 void SimulationEngine::userLoadLoop()
 {
+    const auto stocks = loadUserStocks();
     {
         std::lock_guard<std::mutex> lock(mutex_);
         concurrency_.userLoadThreadId = threadIdText();
         concurrency_.userLoadActive = true;
         concurrency_.users.clear();
         for (int i = 1; i <= 8; ++i) {
-            concurrency_.users.push_back(ConcurrencySnapshot::UserSession{ i, 100000.0 + i * 800.0, 0, 0, true });
+            const auto& stock = stocks[static_cast<size_t>(i - 1) % stocks.size()];
+            ConcurrencySnapshot::UserSession user;
+            user.id = i;
+            user.symbol = widenAscii(stock.symbol);
+            user.strategy = strategyName(userStrategy(i));
+            user.dataPath = stock.path;
+            user.equity = 100000.0 + i * 800.0;
+            user.active = true;
+            concurrency_.users.push_back(user);
         }
         concurrency_.activeUsers = static_cast<int>(concurrency_.users.size());
     }
-    addLog(L"User load thread started: 8 simulated users run parallel std::async quote/backtest requests.");
+    addLog(L"User load thread started: 8 simulated users trade existing stocks with rotating strategies.");
 
     int cycle = 0;
     while (running_.load()) {
@@ -466,18 +647,26 @@ void SimulationEngine::userLoadLoop()
         std::vector<std::future<ConcurrencySnapshot::UserSession>> futures;
         futures.reserve(baseUsers.size());
         for (const auto& user : baseUsers) {
-            futures.push_back(std::async(std::launch::async, [this, user, cycle] {
+            futures.push_back(std::async(std::launch::async, [user, cycle] {
                 ConcurrencySnapshot::UserSession updated = user;
                 std::mt19937 localRng(static_cast<unsigned>(user.id * 7919 + cycle * 104729));
-                std::normal_distribution<double> pnl(0.0, 120.0);
-                const auto rows = dataStore_.queryRange(static_cast<size_t>((cycle * 17 + user.id * 31) % 1000), 120);
-                double localPnl = pnl(localRng);
+                std::normal_distribution<double> noise(0.0, 65.0);
+                MarketDataStore localStore;
+                localStore.loadOrCreate(user.dataPath, narrowAscii(user.symbol));
+                const auto allRows = localStore.allBars();
+                const size_t endIndex = allRows.empty()
+                    ? 0
+                    : static_cast<size_t>((cycle * 17 + user.id * 31) % allRows.size());
+                const auto rows = localStore.queryRange(endIndex, 120);
+                const StrategyKind strategy = userStrategy(user.id);
+                double localPnl = noise(localRng);
                 if (!rows.empty()) {
-                    localPnl += (rows.back().close - rows.front().open) * 10.0;
+                    const double exposure = strategyExposure(strategy, rows);
+                    localPnl += updated.equity * exposure * 0.05;
                 }
                 updated.equity = std::max(1000.0, updated.equity + localPnl);
                 updated.requests += 1 + static_cast<int>(localRng() % 4);
-                updated.latencyMs = 8 + static_cast<int>(localRng() % 45) + static_cast<int>(rows.size() / 80);
+                updated.latencyMs = 10 + static_cast<int>(localRng() % 35) + static_cast<int>(rows.size() / 80);
                 updated.active = true;
                 return updated;
             }));
@@ -579,18 +768,53 @@ void SimulationEngine::resetLocked()
     trades_.clear();
     logs_.clear();
     concurrency_ = ConcurrencySnapshot{};
+    universe_.clear();
+    replayIndex_ = 0;
     lastPrice_ = 100.0;
+}
+
+void SimulationEngine::rebuildSelectedChartLocked(size_t endIndex)
+{
+    bars_.clear();
+    prices_.clear();
+    const ReplaySource* selected = nullptr;
+    for (const auto& source : universe_) {
+        if (source.symbol == symbol_) {
+            selected = &source;
+            break;
+        }
+    }
+    if (!selected && !universe_.empty()) {
+        selected = &universe_.front();
+        symbol_ = selected->symbol;
+        dataPath_ = selected->path;
+    }
+    if (!selected) {
+        return;
+    }
+
+    const size_t count = std::min(endIndex, selected->bars.size());
+    const size_t begin = count > 360 ? count - 360 : 0;
+    bars_.reserve(count - begin);
+    prices_.reserve(count - begin);
+    for (size_t i = begin; i < count; ++i) {
+        bars_.push_back(selected->bars[i]);
+        prices_.push_back(selected->bars[i].close);
+    }
+    if (!bars_.empty()) {
+        lastPrice_ = bars_.back().close;
+    }
 }
 
 void SimulationEngine::notify() const
 {
-    HWND hwnd = nullptr;
+    std::function<void()> onUpdate;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        hwnd = notifyWindow_;
-        ++concurrency_.uiPostMessages;
+        onUpdate = onUpdate_;
+        ++concurrency_.updateNotifications;
     }
-    if (hwnd) {
-        PostMessage(hwnd, WM_APP_ENGINE_UPDATE, 0, 0);
+    if (onUpdate) {
+        onUpdate();
     }
 }

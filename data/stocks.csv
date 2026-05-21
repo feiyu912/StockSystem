@@ -1,0 +1,4 @@
+symbol,name,path
+000001.SZ,平安银行,data\akshare_export_000001_SZ.csv
+300750.SZ,宁德时代,data\akshare_export_300750_SZ.csv
+600519.SH,贵州茅台,data\akshare_export_600519_SH.csv

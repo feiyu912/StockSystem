@@ -4,15 +4,11 @@
 #include "TradingCore.h"
 
 #include <atomic>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
-
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
 
 struct OrderRecord {
     Order order;
@@ -25,6 +21,9 @@ struct OrderRecord {
 struct ConcurrencySnapshot {
     struct UserSession {
         int id = 0;
+        std::wstring symbol = L"-";
+        std::wstring strategy = L"-";
+        std::wstring dataPath;
         double equity = 100000.0;
         int requests = 0;
         int latencyMs = 0;
@@ -46,7 +45,7 @@ struct ConcurrencySnapshot {
     size_t marketEvents = 0;
     size_t strategySignals = 0;
     size_t matchedOrders = 0;
-    size_t uiPostMessages = 0;
+    size_t updateNotifications = 0;
     size_t userRequests = 0;
     std::vector<UserSession> users;
 };
@@ -74,14 +73,21 @@ public:
 
     void configure(double initialCash, int shortWindow, int longWindow, StrategyKind strategyKind, const std::wstring& dataPath, const std::string& symbol);
     void setReplayDelay(int milliseconds);
-    void start(HWND notifyWindow);
+    void start(std::function<void()> onUpdate);
     void pauseOrResume();
     void stop();
     void reset();
-    void optimize(HWND notifyWindow);
+    void selectSymbol(const std::wstring& dataPath, const std::string& symbol);
+    void optimize(std::function<void()> onUpdate);
     UiSnapshot snapshot() const;
 
 private:
+    struct ReplaySource {
+        std::wstring path;
+        std::string symbol;
+        std::vector<MarketBar> bars;
+    };
+
     struct FastBacktestResult {
         int shortW = 0;
         int longW = 0;
@@ -100,6 +106,7 @@ private:
     double transactionFee(const Trade& trade) const;
     void addLog(const std::wstring& text);
     void resetLocked();
+    void rebuildSelectedChartLocked(size_t endIndex);
     void notify() const;
 
     template <typename T>
@@ -120,7 +127,7 @@ private:
     std::thread userLoadThread_;
     std::atomic<bool> running_ = false;
     std::atomic<bool> paused_ = false;
-    HWND notifyWindow_ = nullptr;
+    std::function<void()> onUpdate_;
     double initialCash_ = 100000.0;
     double totalFees_ = 0.0;
     int shortWindow_ = 5;
@@ -132,6 +139,8 @@ private:
     double lastPrice_ = 100.0;
     mutable ConcurrencySnapshot concurrency_;
     mutable MarketDataStore dataStore_;
+    std::vector<ReplaySource> universe_;
+    size_t replayIndex_ = 0;
     Account account_;
     std::vector<MarketBar> bars_;
     std::vector<double> prices_;

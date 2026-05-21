@@ -1,0 +1,4 @@
+symbol,path,rows_in,rows_out,bad_rows,duplicates,first_timestamp,last_timestamp,min_close,max_close,rewritten
+000001.SZ,data\akshare_export_000001_SZ.csv,1543,1543,0,0,20200102,20260520,7.470000,22.930000,1
+300750.SZ,data\akshare_export_300750_SZ.csv,1543,1543,0,0,20200102,20260520,38.990000,460.000000,1
+600519.SH,data\akshare_export_600519_SH.csv,1543,1543,0,0,20200102,20260520,764.770000,2386.790000,1

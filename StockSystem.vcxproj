@@ -139,24 +139,24 @@
     </Manifest>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="AppMessages.h" />
-    <ClInclude Include="BacktestEngine.h" />
+    <ClInclude Include="ui\AppMessages.h" />
+    <ClInclude Include="core\BacktestEngine.h" />
     <ClInclude Include="framework.h" />
-    <ClInclude Include="Indicators.h" />
-    <ClInclude Include="MainWindow.h" />
-    <ClInclude Include="MarketDataStore.h" />
+    <ClInclude Include="core\Indicators.h" />
+    <ClInclude Include="ui\MainWindow.h" />
+    <ClInclude Include="core\MarketDataStore.h" />
     <ClInclude Include="Resource.h" />
     <ClInclude Include="StockSystem.h" />
     <ClInclude Include="targetver.h" />
-    <ClInclude Include="TradingCore.h" />
+    <ClInclude Include="core\TradingCore.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="BacktestEngine.cpp" />
-    <ClCompile Include="Indicators.cpp" />
-    <ClCompile Include="MainWindow.cpp" />
-    <ClCompile Include="MarketDataStore.cpp" />
+    <ClCompile Include="core\BacktestEngine.cpp" />
+    <ClCompile Include="core\Indicators.cpp" />
+    <ClCompile Include="ui\MainWindow.cpp" />
+    <ClCompile Include="core\MarketDataStore.cpp" />
     <ClCompile Include="StockSystem.cpp" />
-    <ClCompile Include="TradingCore.cpp" />
+    <ClCompile Include="core\TradingCore.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="StockSystem.rc" />

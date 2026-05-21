@@ -1,8 +1,9 @@
 ﻿#include "MainWindow.h"
 
-#include "BacktestEngine.h"
-#include "Indicators.h"
-#include "Resource.h"
+#include "AppMessages.h"
+#include "../core/BacktestEngine.h"
+#include "../core/Indicators.h"
+#include "../Resource.h"
 
 #include <algorithm>
 #include <commctrl.h>
@@ -367,8 +368,8 @@ StrategyKind selectedStrategy()
 
 int selectedPeriodFactor()
 {
-    static constexpr int factors[] = { 1, 5, 15, 30, 60, 240, 1200 };
-    return factors[std::clamp(comboSelection(g_app->hPeriod, 0), 0, 6)];
+    static constexpr int factors[] = { 1, 5, 20 };
+    return factors[std::clamp(comboSelection(g_app->hPeriod, 0), 0, 2)];
 }
 
 int selectedReplayDelay()
@@ -379,8 +380,8 @@ int selectedReplayDelay()
 
 std::wstring periodName()
 {
-    static constexpr const wchar_t* names[] = { L"1m", L"5m", L"15m", L"30m", L"60m", L"Day", L"Week" };
-    return names[std::clamp(comboSelection(g_app->hPeriod, 0), 0, 6)];
+    static constexpr const wchar_t* names[] = { L"Day", L"Week", L"Month" };
+    return names[std::clamp(comboSelection(g_app->hPeriod, 0), 0, 2)];
 }
 
 void addListLine(HWND listBox, const std::wstring& text)
@@ -465,7 +466,26 @@ void startBacktest(HWND window)
     g_app->chartDragging = false;
     g_app->engine.configure(cash, shortW, longW, selectedStrategy(), stock.path, stock.symbol);
     g_app->engine.setReplayDelay(selectedReplayDelay());
-    g_app->engine.start(window);
+    g_app->engine.start([window] {
+        PostMessage(window, WM_APP_ENGINE_UPDATE, 0, 0);
+    });
+    refreshLists(window);
+}
+
+void prepareSelectedBacktest(HWND window)
+{
+    const double cash = readDouble(g_app->hCash, 100000.0);
+    const int shortW = std::max(1, readInt(g_app->hShort, 5));
+    const int longW = std::max(shortW + 1, readInt(g_app->hLong, 30));
+    const auto& stock = selectedStock();
+    g_app->chartOffset = 0;
+    g_app->hoverBar = -1;
+    g_app->selectedBar = -1;
+    g_app->chartDragging = false;
+    g_app->engine.configure(cash, shortW, longW, selectedStrategy(), stock.path, stock.symbol);
+    g_app->engine.setReplayDelay(selectedReplayDelay());
+    g_app->engine.selectSymbol(stock.path, stock.symbol);
+    g_app->chartHint = L"当前查看: " + stock.label + L"。Start/Pause 控制全市场时间线。";
     refreshLists(window);
 }
 
@@ -551,7 +571,7 @@ void createControls(HWND window)
     SendMessageW(g_app->hSymbol, CB_SETCURSEL, 0, 0);
 
     g_app->hPeriod = CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 0, 0, 0, 0, window, menuId(IDC_COMBO_PERIOD), g_instance, nullptr);
-    for (const wchar_t* text : { L"1m", L"5m", L"15m", L"30m", L"60m", L"Day", L"Week" }) {
+    for (const wchar_t* text : { L"Day", L"Week", L"Month" }) {
         SendMessageW(g_app->hPeriod, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text));
     }
     SendMessageW(g_app->hPeriod, CB_SETCURSEL, 0, 0);
@@ -734,9 +754,8 @@ void drawTimeLabels(HDC dc, const RECT& rect, const std::vector<MarketBar>& bars
     for (int i = 0; i <= 4; ++i) {
         const size_t index = std::min(bars.size() - 1, static_cast<size_t>(i * (bars.size() - 1) / 4));
         const int x = rect.left + (rect.right - rect.left) * i / 4 - 18;
-        std::wstringstream ss;
-        ss << L"T+" << bars[index].timestamp;
-        TextOutW(dc, x, rect.bottom + 5, ss.str().c_str(), static_cast<int>(ss.str().size()));
+        const std::wstring label = timestampText(bars[index].timestamp);
+        TextOutW(dc, x, rect.bottom + 5, label.c_str(), static_cast<int>(label.size()));
     }
 }
 
@@ -1132,7 +1151,7 @@ void drawSidePanel(HDC dc)
     y += 20;
     line.str(L"");
     line.clear();
-    line << L"UI PostMessage " << c.uiPostMessages;
+    line << L"UI Updates " << c.updateNotifications;
     text(dc, side.left + 22, y, line.str(), CLR_MUTED);
     y += 20;
     text(dc, side.left + 22, y, L"Parallel MA: std::execution::par", CLR_MUTED);
@@ -1177,7 +1196,7 @@ void drawSidePanel(HDC dc)
     text(dc, side.left + 22, y, line.str(), CLR_MUTED);
 
     y += 28;
-    text(dc, side.left + 14, y, L"User Load Monitor", CLR_TEXT);
+    text(dc, side.left + 14, y, L"Virtual Strategy Users", CLR_TEXT);
     y += 24;
     line.str(L"");
     line.clear();
@@ -1197,17 +1216,23 @@ void drawSidePanel(HDC dc)
     int userRows = 0;
     const int collapsedRows = hasMoreUsers ? 3 : 5;
     for (const auto& user : c.users) {
-        if ((!g_app->userListExpanded && userRows >= collapsedRows) || y + 20 >= sy - 12) {
+        if ((!g_app->userListExpanded && userRows >= collapsedRows) || y + 36 >= sy - 12) {
             break;
         }
         line.str(L"");
         line.clear();
         line << L"U" << user.id << L" "
              << (user.active ? L"RUN" : L"IDLE")
-             << L" eq " << std::fixed << std::setprecision(0) << user.equity
+             << L" " << user.symbol
              << L"  " << user.latencyMs << L"ms";
         text(dc, side.left + 22, y, line.str(), user.active ? CLR_RED : CLR_MUTED);
-        y += 20;
+        y += 16;
+        line.str(L"");
+        line.clear();
+        line << user.strategy
+             << L"  eq " << std::fixed << std::setprecision(0) << user.equity;
+        text(dc, side.left + 34, y, line.str(), CLR_MUTED);
+        y += 22;
         ++userRows;
     }
     if (c.users.size() > static_cast<size_t>(userRows) && y + 18 < sy) {
@@ -1339,7 +1364,9 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
             refreshLists(window);
             break;
         case IDC_BTN_OPTIMIZE:
-            g_app->engine.optimize(window);
+            g_app->engine.optimize([window] {
+                PostMessage(window, WM_APP_ENGINE_UPDATE, 0, 0);
+            });
             break;
         case IDC_COMBO_PERIOD:
             if (HIWORD(wParam) == CBN_SELCHANGE) {
@@ -1364,16 +1391,12 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
             break;
         case IDC_COMBO_SYMBOL:
             if (HIWORD(wParam) == CBN_SELCHANGE) {
-                g_app->chartOffset = 0;
-                g_app->hoverBar = -1;
-                g_app->selectedBar = -1;
-                g_app->chartHint = L"已选择股票: " + selectedStock().label + L"。点击 Start 开始回放本地 CSV。";
-                refreshLists(window);
+                prepareSelectedBacktest(window);
             }
             break;
         case IDC_COMBO_STRATEGY:
             if (HIWORD(wParam) == CBN_SELCHANGE) {
-                refreshLists(window);
+                prepareSelectedBacktest(window);
             }
             break;
         case IDM_ABOUT:
